@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/valyala/gozstd"
@@ -23,12 +24,19 @@ type decoderState struct {
 
 func doOpPlay(opt options) {
 	d := initPlayer(opt)
-	off := d.searchOffsetForFrame(10)
-	_, ct, err := d.readFrameFromOffset(off)
-	if err != nil {
-		panic(err)
+	off := d.searchOffsetForFrame(0)
+	var nextOffset uint64 = off
+	var prev frameContent = nil
+	for {
+		var ct frameContent
+		var err error
+		_, ct, err, nextOffset = d.readFrameFromOffset(nextOffset)
+		if err != nil {
+			continue
+		}
+		d.renderFrameTo(prev, ct, os.Stdout)
+		prev = ct
 	}
-	d.renderFrameTo(nil, ct, os.Stdout)
 }
 
 func initPlayer(opt options) *decoderState {
@@ -162,7 +170,7 @@ func (d *decoderState) searchOffsetForFrame(time float64) uint64 {
 	}
 }
 
-func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo *frame, content frameContent, err error) {
+func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo *frame, content frameContent, err error, nextOffset uint64) {
 	d.readLock.Lock()
 	defer d.readLock.Unlock()
 	_, err = d.file.Seek(int64(byteOffset), os.SEEK_SET)
@@ -181,6 +189,7 @@ func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo *frame,
 	}
 	buf := make([]byte, frameByteLen)
 	d.file.Read(buf)
+	nextOffset = byteOffset + 4 + uint64(frameByteLen)
 	if d.compressed {
 		buf, err = gozstd.DecompressDict(nil, buf, d.ddict)
 		if err != nil {
@@ -192,6 +201,13 @@ func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo *frame,
 	if err != nil {
 		return
 	}
+	defer func() {
+		p := recover()
+		if p != nil {
+			err = errors.New("panic!")
+			fmt.Fprintf(os.Stderr, "%v", p)
+		}
+	}()
 	frameInfo, content = d.decodeFrameStruct(frameStruct)
 	return
 }
@@ -240,6 +256,8 @@ func (d *decoderState) renderFrameTo(perv, next frameContent, out io.Writer) {
 			}
 			if cursorRow != row || cursorCol != col {
 				fmt.Fprintf(out, "\033[%d;%dH", row+1, col+1)
+				cursorRow = row
+				cursorCol = col
 			}
 			cell := next.getCellAt(row, col, &d.size)
 			if row != 0 && col != 0 && cell.attrCode() == lastAttr {
@@ -249,11 +267,6 @@ func (d *decoderState) renderFrameTo(perv, next frameContent, out io.Writer) {
 				out.Write([]byte(cell.toOutput()))
 			}
 			cursorCol++
-			if cursorCol >= d.size.cols {
-				cursorCol = 0
-				cursorRow = row + 1
-				fmt.Fprintf(out, "\033[%d;%dH", cursorRow+1, cursorCol+1)
-			}
 		}
 	}
 }
