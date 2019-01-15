@@ -9,12 +9,12 @@ File structure for .its (indexed typescript):
   header: protobuf message header
 
   frame 0 length: 4 byte uint32, big endian <- header.firstFrameOffset, index[0].byteOffset
-  frame 0: protobuf message frame, possibly compressed
+  frame 0: protobuf message frame, possibly compressed with dict
   frame 1 length ...... <- index[1...?].byteOffset
   ......
 
   index length: 8 byte uint64, big endian <- header.indexOffset
-  index: protobuf message index, possibly compressed
+  index: protobuf message index, possibly compressed without using dict
 
 */
 
@@ -30,7 +30,7 @@ message ITSHeader {
     COMPRESSION_ZSTD = 1;
   }
   Compression compressionMode = 7;
-  bytes compressionDict = 8; // this is itself compressed
+  bytes compressionDict = 8; // this is itself compressed without dict
 }
 
 message ITSIndex {
