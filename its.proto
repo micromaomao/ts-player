@@ -1,0 +1,63 @@
+syntax = "proto3";
+package main;
+
+/*
+
+File structure for .its (indexed typescript):
+  magic: 11 bytes "\x01ITS-PROTO3"
+  header length: 4 byte uint32, big endian
+  header: protobuf message header
+
+  frame 0 length: 4 byte uint32, big endian <- header.firstFrameOffset, index[0].byteOffset
+  frame 0: protobuf message frame, possibly compressed
+  frame 1 length ...... <- index[1...?].byteOffset
+  ......
+
+  index length: 8 byte uint64, big endian <- header.indexOffset
+  index: protobuf message index, possibly compressed
+
+*/
+
+message ITSHeader {
+  int32 version = 1; // start from 1.
+  fixed64 firstFrameOffset = 2;
+  fixed64 indexOffset = 3;
+  uint64 timestamp = 4; // timestamp of recording.
+  uint32 rows = 5;
+  uint32 cols = 6;
+  enum Compression {
+    COMPRESSION_NONE = 0;
+    COMPRESSION_ZSTD = 1;
+  }
+  Compression compressionMode = 7;
+  bytes compressionDict = 8; // this is itself compressed
+}
+
+message ITSIndex {
+  message FrameIndex {
+    double timeOffset = 1;
+    uint64 byteOffset = 2;
+  }
+
+  uint64 count = 1; // len(frames)
+  repeated FrameIndex frames = 2;
+}
+
+message ITSFrame {
+  uint64 frameId = 1;
+  double timeOffset = 2;
+  double duration = 3;
+
+  enum FrameType {
+    FRAMETYPE_K = 0;
+  }
+  FrameType type = 4;
+  oneof body {
+    KFrame body_k = 5;
+  }
+
+  message KFrame {
+    repeated string contents = 1;
+    repeated uint64 attrs = 2;
+  }
+}
