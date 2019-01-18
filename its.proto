@@ -35,6 +35,7 @@ message ITSHeader {
 
 message ITSIndex {
   message FrameIndex {
+    // the index of this element is frameId
     double timeOffset = 1;
     uint64 byteOffset = 2;
   }

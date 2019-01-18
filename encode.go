@@ -54,7 +54,7 @@ func doOpEncode(opt options) {
 	e.resetVT(opt)
 	dictSamples := make([][]byte, 0, 1000)
 	bytesStored := 0
-	tsEncodeFramesPass(0.2, bTiming, fScript, os.Stderr, func(f *frame) {
+	tsEncodeFramesPass(1, bTiming, fScript, os.Stderr, func(f *frame) {
 		fContent := e.inputToFrameContent(f.data)
 		fStruct := e.getFrameStruct(f, fContent)
 		buf, err := proto.Marshal(fStruct)
@@ -98,12 +98,33 @@ func (e *encoderState) resetVT(opt options) {
 	vtScr := e.t.ObtainScreen()
 	vtScr.Reset(true)
 	vtScr.EnableAltScreen(true)
-	e.t.ObtainState().SetDefaultColors(opt.stage.initFg, opt.stage.initBg)
+	tState := e.t.ObtainState()
+	tState.SetDefaultColors(uint32ToColor(opt.stage.indexedColors[0]), uint32ToColor(opt.stage.indexedColors[1]))
+	for i := 2; i < 18; i++ {
+		col := uint32ToColor(opt.stage.indexedColors[i])
+		tState.SetPaletteColor(i-2, col)
+	}
+}
+
+func uint32ToColor(i uint32) color.RGBA {
+	b := uint8(i % 256)
+	i >>= 8
+	g := uint8(i % 256)
+	i >>= 8
+	r := uint8(i % 256)
+	return color.RGBA{R: r, G: g, B: b, A: 255}
 }
 
 type frameCallback func(f *frame)
 
 func tsEncodeFramesPass(fps float64, bTiming *bufio.Reader, fScript *os.File, bufStatusOut io.Writer, cb frameCallback, stageText string) {
+	// figure out the byte offset of the first \n. The first line of the script file is to be ignored.
+	scriptLineProb := bufio.NewReaderSize(fScript, 10000)
+	firstLine, err := scriptLineProb.ReadBytes('\n')
+	if err != nil && err != io.EOF {
+		panic(err)
+	}
+	startFromByteOffset := uint64(len(firstLine))
 	var offset, flen uint64
 	var fsec, totalSec float64
 	var fnum uint64
@@ -131,7 +152,7 @@ func tsEncodeFramesPass(fps float64, bTiming *bufio.Reader, fScript *os.File, bu
 		flen += uint64(step)
 		if fsec >= spf {
 			buf := make([]byte, flen)
-			n, err := fScript.ReadAt(buf, int64(offset))
+			n, err := fScript.ReadAt(buf, int64(offset+startFromByteOffset))
 			if err != nil && err != io.EOF {
 				panic(err)
 			}
@@ -309,6 +330,12 @@ func (e *encoderState) inputToFrameContent(input []byte) frameContent {
 				panic(err)
 			}
 			cell.chars = termCell.Chars()
+			if len(cell.chars) > 0 && cell.chars[len(cell.chars)-1] == 0 {
+				cell.chars = cell.chars[0 : len(cell.chars)-1]
+			}
+			if len(cell.chars) == 0 {
+				cell.chars = []rune{' '}
+			}
 			cell.styleFromAttrs(termCell.Attrs(), termCell.Bg().(color.RGBA), termCell.Fg().(color.RGBA))
 			fc.setCellAt(row, col, cell, &e.size)
 		}
