@@ -378,8 +378,12 @@ func (e *encoderState) initOutputFile(fOutput *os.File) {
 	e.fileHeader.Rows = uint32(e.size.rows)
 	e.fileHeader.Cols = uint32(e.size.cols)
 	e.fileHeader.CompressionMode = ITSHeader_COMPRESSION_ZSTD
-	compressedDict := gozstd.Compress(nil, e.dict)
-	e.fileHeader.CompressionDict = compressedDict
+	if e.dict != nil {
+		compressedDict := gozstd.Compress(nil, e.dict)
+		e.fileHeader.CompressionDict = compressedDict
+	} else {
+		e.fileHeader.CompressionDict = []byte{}
+	}
 	e.fileHeader.FirstFrameOffset = (1 << 64) - 1
 	e.fileHeader.IndexOffset = (1 << 64) - 1
 	headerLen := proto.Size(e.fileHeader)
@@ -434,7 +438,12 @@ func (e *encoderState) writeFrame(frameInfo *frame, currentFrameContent frameCon
 	if err != nil {
 		panic(err)
 	}
-	compressedBuf := gozstd.CompressDict(nil, buf, e.cdict)
+	var compressedBuf []byte
+	if e.cdict != nil {
+		compressedBuf = gozstd.CompressDict(nil, buf, e.cdict)
+	} else {
+		compressedBuf = gozstd.Compress(nil, buf)
+	}
 
 	length := uint32(len(compressedBuf))
 	binary.Write(e.fOutput, binary.BigEndian, length)

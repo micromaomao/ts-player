@@ -172,13 +172,18 @@ func initPlayer(opt options) *decoderState {
 	switch header.GetCompressionMode() {
 	case ITSHeader_COMPRESSION_ZSTD:
 		d.compressed = true
-		dictBuf, err := gozstd.Decompress(nil, header.GetCompressionDict())
-		if err != nil {
-			panic(err)
-		}
-		d.ddict, err = gozstd.NewDDict(dictBuf)
-		if err != nil {
-			panic(err)
+		compressedDictBuf := header.GetCompressionDict()
+		if len(compressedDictBuf) > 0 {
+			dictBuf, err := gozstd.Decompress(nil, compressedDictBuf)
+			if err != nil {
+				panic(err)
+			}
+			d.ddict, err = gozstd.NewDDict(dictBuf)
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			d.ddict = nil
 		}
 
 		indexBuf, err = gozstd.Decompress(nil, indexBuf)
@@ -264,9 +269,16 @@ func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo *frame,
 	d.file.Read(buf)
 	nextOffset = byteOffset + 4 + uint64(frameByteLen)
 	if d.compressed {
-		buf, err = gozstd.DecompressDict(nil, buf, d.ddict)
-		if err != nil {
-			return
+		if d.ddict != nil {
+			buf, err = gozstd.DecompressDict(nil, buf, d.ddict)
+			if err != nil {
+				return
+			}
+		} else {
+			buf, err = gozstd.Decompress(nil, buf)
+			if err != nil {
+				return
+			}
 		}
 	}
 	frameStruct := &ITSFrame{}

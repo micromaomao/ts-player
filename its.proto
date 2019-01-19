@@ -31,6 +31,7 @@ message ITSHeader {
   }
   Compression compressionMode = 7;
   bytes compressionDict = 8; // this is itself compressed without dict
+  // if compressionDict is a zero-byte array, the frame data are compressed without any dict.
 }
 
 message ITSIndex {
