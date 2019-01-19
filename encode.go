@@ -245,6 +245,10 @@ func (c *frameCell) styleFromAttrs(attrs *vterm.Attrs, bg, fg color.RGBA) {
 	}
 	c.style.bg = bg
 	c.style.fg = fg
+	if attrs.Reverse > 0 {
+		c.style.bg = fg
+		c.style.fg = bg
+	}
 }
 
 func (c *frameCell) attrCode() uint64 {
