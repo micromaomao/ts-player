@@ -44,7 +44,6 @@ func doOpEncode(opt options) {
 	e.t = vt
 	e.size.rows = opt.stage.rows
 	e.size.cols = opt.stage.cols
-	e.pass = encoderPassDictBuilding
 
 	os.Stderr.WriteString("Determining total time and frame number...\n")
 	fTiming.Seek(0, os.SEEK_SET)
@@ -184,13 +183,6 @@ func tsEncodeFramesPass(fps float64, bTiming *bufio.Reader, fScript *os.File, cb
 	}
 }
 
-type encoderPass uint8
-
-const (
-	encoderPassDictBuilding encoderPass = 1
-	encoderPassEncoding     encoderPass = 2
-)
-
 type sizeStruct struct {
 	rows, cols int
 }
@@ -200,7 +192,6 @@ type encoderState struct {
 	perviousFrameContent frameContent
 	fOutput              *os.File
 	size                 sizeStruct
-	pass                 encoderPass
 	dict                 []byte
 	cdict                *gozstd.CDict
 

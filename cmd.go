@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/mattn/go-isatty"
 	"os"
+	"syscall"
 )
 
 type options struct {
@@ -22,6 +24,7 @@ type options struct {
 const (
 	opEncode string = "encode"
 	opPlay   string = "play"
+	opRecord string = "record"
 )
 
 func main() {
@@ -46,6 +49,8 @@ func main() {
 		doOpEncode(opt)
 	case opPlay:
 		doOpPlay(opt)
+	case opRecord:
+		doOpRecord(opt)
 	default:
 		doOpUnknown(opt.operation)
 	}
@@ -61,6 +66,15 @@ var (
 
 func parseArgs(args []string) (opt options, err error) {
 	err = nil
+	if args[1] == "__rec_exec" && len(args) == 3 {
+		if !isatty.IsTerminal(0) || !isatty.IsTerminal(1) || !isatty.IsTerminal(2) {
+			os.Exit(1)
+		}
+		syscall.Setsid()
+		tiocsctty(0)
+		syscall.Exec(args[2], []string{args[2]}, os.Environ())
+		return
+	}
 	if len(args) == 4 {
 		opt.operation = opEncode
 		opt.stage.rows = 400
@@ -73,8 +87,15 @@ func parseArgs(args []string) (opt options, err error) {
 	} else if len(args) == 2 {
 		opt.operation = opPlay
 		opt.itsFile = args[1]
+	} else if len(args) == 3 && args[1] == "record" {
+		opt.operation = opRecord
+		opt.output = args[2]
+		opt.stage.rows = 400
+		opt.stage.cols = 300
+		opt.stage.indexedColors = PalettleSolarized
+		opt.fps = 60
 	} else {
-		err = fmt.Errorf("syntax: <script> <timing> <output> | <its file>")
+		err = fmt.Errorf("syntax: <script> <timing> <output> | <its file> | record <output>")
 	}
 	return
 }

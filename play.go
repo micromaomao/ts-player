@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/mattn/go-isatty"
-	"github.com/pkg/term/termios"
 	"github.com/valyala/gozstd"
 	"image/color"
 	"io"
@@ -58,15 +57,7 @@ func doOpPlay(opt options) {
 		os.Exit(1)
 	}
 	d := initPlayer(opt)
-	ttyAttr := syscall.Termios{}
-	termios.Tcgetattr(0, &ttyAttr)
-
-	copy := ttyAttr
-	copy.Iflag &= ^uint32(syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON)
-	copy.Oflag &= ^uint32(syscall.OPOST)
-	copy.Lflag &= ^uint32(syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN)
-	copy.Cflag |= uint32(syscall.CS8)
-	termios.Tcsetattr(0, termios.TCSADRAIN, &copy)
+	initTtyAttr := termSetRaw()
 	fmt.Fprintf(os.Stdout, "\033[1049h")
 	go d.uiThread()
 	signalChannel := make(chan os.Signal)
@@ -99,7 +90,7 @@ func doOpPlay(opt options) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	fmt.Fprintf(os.Stdout, "\033[1049l")
-	termios.Tcsetattr(0, termios.TCSADRAIN, &ttyAttr)
+	termRestore(initTtyAttr)
 }
 
 func initPlayer(opt options) *decoderState {
