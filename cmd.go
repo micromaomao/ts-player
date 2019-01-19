@@ -69,7 +69,7 @@ func parseArgs(args []string) (opt options, err error) {
 		opt.script = args[1]
 		opt.timing = args[2]
 		opt.output = args[3]
-		opt.fps = 60
+		opt.fps = 1
 	} else if len(args) == 2 {
 		opt.operation = opPlay
 		opt.itsFile = args[1]

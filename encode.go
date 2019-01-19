@@ -46,7 +46,19 @@ func doOpEncode(opt options) {
 	e.size.cols = opt.stage.cols
 	e.pass = encoderPassDictBuilding
 
-	os.Stderr.WriteString("\n")
+	os.Stderr.WriteString("Determining total time and frame number...\n")
+	fTiming.Seek(0, os.SEEK_SET)
+	bTiming.Reset(fTiming)
+	fScript.Seek(0, os.SEEK_SET)
+	var totalFrames, _totalBytesRead uint64
+	var totalDuration float64
+	tsEncodeFramesPass(float64(opt.fps), bTiming, fScript, func(f *frame, bytesRead uint64) {
+		totalFrames = f.index
+		totalDuration = f.time + f.duration
+		_totalBytesRead = bytesRead
+	})
+	totalDuration = math.Round(totalDuration)
+	totalBytesRead := humanize.Bytes(_totalBytesRead)
 
 	fTiming.Seek(0, os.SEEK_SET)
 	bTiming.Reset(fTiming)
@@ -54,7 +66,7 @@ func doOpEncode(opt options) {
 	e.resetVT(opt)
 	dictSamples := make([][]byte, 0, 1000)
 	bytesStored := 0
-	tsEncodeFramesPass(1, bTiming, fScript, os.Stderr, func(f *frame) {
+	tsEncodeFramesPass(200/totalDuration, bTiming, fScript, func(f *frame, bytesRead uint64) {
 		fContent := e.inputToFrameContent(f.data)
 		fStruct := e.getFrameStruct(f, fContent)
 		buf, err := proto.Marshal(fStruct)
@@ -67,7 +79,8 @@ func doOpEncode(opt options) {
 			fTiming.Seek(0, os.SEEK_END)
 			bTiming.Reset(fTiming)
 		}
-	}, "Collecting")
+		fmt.Fprintf(os.Stderr, "\r\033[1A\033[2KCollecting frames for compression dict (%v%%), t=%vs of %vs read=%v of %v\n", math.Round((float64(f.index)/200)*100), math.Round((f.time+f.duration)*10)/10, totalDuration, humanize.Bytes(bytesRead), totalBytesRead)
+	})
 	e.dict = gozstd.BuildDict(dictSamples, 1024*1024*5)
 	e.cdict, err = gozstd.NewCDict(e.dict)
 	if err != nil {
@@ -80,10 +93,11 @@ func doOpEncode(opt options) {
 	fScript.Seek(0, os.SEEK_SET)
 	e.resetVT(opt)
 	e.initOutputFile(fOut)
-	tsEncodeFramesPass(float64(opt.fps), bTiming, fScript, os.Stderr, func(f *frame) {
+	tsEncodeFramesPass(float64(opt.fps), bTiming, fScript, func(f *frame, bytesRead uint64) {
 		fContent := e.inputToFrameContent(f.data)
 		e.writeFrame(f, fContent)
-	}, "Encoding")
+		fmt.Fprintf(os.Stderr, "\r\033[1A\033[2KEncoding frame %v of %v, t=%vs of %vs read=%v of %v\n", f.index, totalFrames, math.Round((f.time+f.duration)*10)/10, totalDuration, humanize.Bytes(bytesRead), totalBytesRead)
+	})
 
 	stat, err := fScript.Stat()
 	if err == nil {
@@ -115,9 +129,9 @@ func uint32ToColor(i uint32) color.RGBA {
 	return color.RGBA{R: r, G: g, B: b, A: 255}
 }
 
-type frameCallback func(f *frame)
+type frameCallback func(f *frame, bytesRead uint64)
 
-func tsEncodeFramesPass(fps float64, bTiming *bufio.Reader, fScript *os.File, bufStatusOut io.Writer, cb frameCallback, stageText string) {
+func tsEncodeFramesPass(fps float64, bTiming *bufio.Reader, fScript *os.File, cb frameCallback) {
 	// figure out the byte offset of the first \n. The first line of the script file is to be ignored.
 	scriptLineProb := bufio.NewReaderSize(fScript, 10000)
 	firstLine, err := scriptLineProb.ReadBytes('\n')
@@ -156,10 +170,7 @@ func tsEncodeFramesPass(fps float64, bTiming *bufio.Reader, fScript *os.File, bu
 			if err != nil && err != io.EOF {
 				panic(err)
 			}
-			cb(&frame{fnum, totalSec, fsec, buf[0:n]})
-			if fnum%5 == 0 {
-				fmt.Fprintf(bufStatusOut, "\r\033[1A\033[2K%v frame %v, t=%vs read=%v\n", stageText, fnum, math.Round(totalSec*10)/10, humanize.Bytes(offset))
-			}
+			cb(&frame{fnum, totalSec, fsec, buf[0:n]}, offset+startFromByteOffset+flen)
 			fnum++
 			totalSec += fsec
 			fsec = 0
@@ -311,8 +322,16 @@ func (f *frameContent) setCellAt(row, col int, cell frameCell, size *sizeStruct)
 }
 
 func (e *encoderState) inputToFrameContent(input []byte) frameContent {
-	e.t.Write(input)
-	drainBuf := make([]byte, 100)
+	stepSize := 2000000
+	for i := 0; i < len(input); i += stepSize {
+		// otherwise it segfaults.
+		end := i + stepSize
+		if end > len(input) {
+			end = len(input)
+		}
+		e.t.Write(input[i:end])
+	}
+	drainBuf := make([]byte, 1000)
 	for {
 		n, err := e.t.Read(drainBuf)
 		if err != nil || n < len(drainBuf) {
