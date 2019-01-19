@@ -10,6 +10,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/pkg/term/termios"
 	"github.com/valyala/gozstd"
+	"image/color"
 	"io"
 	"math"
 	"os"
@@ -20,19 +21,20 @@ import (
 )
 
 type decoderState struct {
-	size        sizeStruct
+	frameSize   sizeStruct
 	index       *ITSIndex
 	lastFrameId uint64
 	compressed  bool
 	ddict       *gozstd.DDict
 	file        *os.File
 
-	renderingFrameId    uint64
-	updateSignal        *sync.Cond
-	renderCache         map[uint64]frameToRender
-	renderCacheLock     sync.Locker
-	paused              bool
-	nextTimeForceRedraw bool
+	renderingFrameId     uint64
+	updateSignal         *sync.Cond
+	renderCache          map[uint64]frameToRender
+	renderCacheLock      sync.Locker
+	paused               bool
+	nextTimeForceRedraw  bool
+	showControlBarBefore *time.Time
 
 	exiting bool
 
@@ -88,12 +90,13 @@ func doOpPlay(opt options) {
 	go d.loadFramesThread()
 	for {
 		d.updateSignal.L.Lock()
-		d.updateSignal.Wait()
 		if d.exiting {
 			d.updateSignal.L.Unlock()
 			break
 		}
+		d.updateSignal.Broadcast()
 		d.updateSignal.L.Unlock()
+		time.Sleep(20 * time.Millisecond)
 	}
 	fmt.Fprintf(os.Stdout, "\033[1049l")
 	termios.Tcsetattr(0, termios.TCSADRAIN, &ttyAttr)
@@ -132,9 +135,9 @@ func initPlayer(opt options) *decoderState {
 	}
 
 	d := &decoderState{}
-	d.size.rows = int(header.GetRows())
-	d.size.cols = int(header.GetCols())
-	if d.size.rows*d.size.cols <= 0 {
+	d.frameSize.rows = int(header.GetRows())
+	d.frameSize.cols = int(header.GetCols())
+	if d.frameSize.rows*d.frameSize.cols <= 0 {
 		panic("Invalid dimension")
 	}
 	indexOffset := header.GetIndexOffset()
@@ -289,15 +292,15 @@ func (d *decoderState) decodeFrameStruct(frameStruct *ITSFrame) (frameInfo *fram
 	finfo.index = frameStruct.GetFrameId()
 	finfo.time = frameStruct.GetTimeOffset()
 	finfo.duration = frameStruct.GetDuration()
-	fContent := make(frameContent, d.size.rows*d.size.cols)
+	fContent := make(frameContent, d.frameSize.rows*d.frameSize.cols)
 	body := frameStruct.GetBodyK()
 	i := 0
-	for row := 0; row < d.size.rows; row++ {
-		for col := 0; col < d.size.cols; col++ {
+	for row := 0; row < d.frameSize.rows; row++ {
+		for col := 0; col < d.frameSize.cols; col++ {
 			cell := frameCell{}
 			cell.chars = []rune(body.GetContents()[i])
 			cell.fromAttrCode(body.GetAttrs()[i])
-			fContent.setCellAt(row, col, cell, &d.size)
+			fContent.setCellAt(row, col, cell, &d.frameSize)
 			i++
 		}
 	}
@@ -314,20 +317,19 @@ func (c *frameCell) equalsTo(c2 *frameCell) bool {
 	return true
 }
 
-func (d *decoderState) renderFrameTo(perv, next frameContent, out io.Writer, dx, dy, dw, dh int) {
-	log("rendering to %v %v %v %v", dx, dy, dw, dh)
+func renderFrameContent(perv, next frameContent, out io.Writer, dx, dy, dw, dh int, frameSize sizeStruct) {
 	var cursorRow, cursorCol int
 	fmt.Fprintf(out, "\033[%v;%vH", dy+1, dx+1)
 	var lastAttr uint64
-	for row := 0; row < d.size.rows && row < dh; row++ {
+	for row := 0; row < frameSize.rows && row < dh; row++ {
 		if row+dy < 0 {
 			continue
 		}
-		for col := 0; col < d.size.cols && col < dw; col++ {
+		for col := 0; col < frameSize.cols && col < dw; col++ {
 			if col+dx < 0 {
 				continue
 			}
-			if perv != nil && perv.getCellAt(row, col, &d.size).equalsTo(next.getCellAt(row, col, &d.size)) {
+			if perv != nil && perv.getCellAt(row, col, &frameSize).equalsTo(next.getCellAt(row, col, &frameSize)) {
 				continue
 			}
 			if cursorRow != row || cursorCol != col {
@@ -335,7 +337,7 @@ func (d *decoderState) renderFrameTo(perv, next frameContent, out io.Writer, dx,
 				cursorRow = row
 				cursorCol = col
 			}
-			cell := next.getCellAt(row, col, &d.size)
+			cell := next.getCellAt(row, col, &frameSize)
 			if row != 0 && col != 0 && cell.attrCode() == lastAttr {
 				// no need to output attr
 				out.Write([]byte(string(cell.chars)))
@@ -353,6 +355,8 @@ func (d *decoderState) uiThread() {
 	var perviousSize sizeStruct
 	renderTo := os.Stdout
 	firstRender := true
+	controlBarShowedLastFrame := false
+	var lastControlBarFC frameContent = nil
 	for {
 		needsForcedRedraw := false
 		if !firstRender {
@@ -386,6 +390,15 @@ func (d *decoderState) uiThread() {
 			}
 		}
 		currentRenderingFrameId := d.renderingFrameId
+		showingControlBar := false
+		if d.paused {
+			showingControlBar = true
+		} else if d.showControlBarBefore != nil && d.showControlBarBefore.After(time.Now()) {
+			showingControlBar = true
+		}
+		if controlBarShowedLastFrame && !showingControlBar {
+			needsForcedRedraw = true
+		}
 		d.updateSignal.L.Unlock()
 		if lastFrameRendered == nil || currentRenderingFrameId != lastFrameRendered.frameId {
 			d.renderCacheLock.Lock()
@@ -397,14 +410,15 @@ func (d *decoderState) uiThread() {
 					if !needsForcedRedraw && lastFrameRendered != nil {
 						pervFrameContent = lastFrameRendered.frameContent
 					}
-					if lastFrameRendered != nil && lastFrameStaysBefore.Before(time.Now().Add(-10*time.Millisecond)) {
+					if lastFrameRendered != nil && lastFrameStaysBefore.Before(time.Now().Add(-100*time.Millisecond)) {
 						log("lagging on frame %v (%v)!", lastFrameRendered.frameId, time.Now().Sub(lastFrameStaysBefore))
 					}
 					fmt.Fprintf(renderTo, "\033[1;1H")
 					if pervFrameContent == nil {
 						fmt.Fprintf(renderTo, "\033[J")
 					}
-					d.renderFrameTo(pervFrameContent, frameToDraw.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows)
+					renderFrameContent(pervFrameContent, frameToDraw.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
+					lastControlBarFC = nil
 					lastFrameRendered = &frameToDraw
 					nextFrameWithin := time.Duration(frameToDraw.duration*1000) * time.Millisecond
 					lastFrameStaysBefore = time.Now().Add(nextFrameWithin)
@@ -413,21 +427,75 @@ func (d *decoderState) uiThread() {
 					d.updateSignal.L.Unlock()
 				}
 			} else {
-				log("lag!")
 				if lastFrameRendered == nil && needsForcedRedraw {
 					fmt.Fprintf(renderTo, "\033[1;1H\033[J\033[%v;%vH\033[0;4;1mRendering...\033[0m\033[%v;%vH", termSz.rows/4, termSz.cols/2-6, termSz.rows/4+2, termSz.cols/2)
+					lastControlBarFC = nil
 					d.updateSignal.L.Lock()
 					d.updateWithin(100 * time.Millisecond)
 					d.updateSignal.L.Unlock()
 				} else if lastFrameRendered != nil && needsForcedRedraw {
 					fmt.Fprintf(renderTo, "\033[1;1H\033[J")
-					d.renderFrameTo(nil, lastFrameRendered.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows)
+					renderFrameContent(nil, lastFrameRendered.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
+					lastControlBarFC = nil
 				}
 			}
 		} else if needsForcedRedraw {
 			fmt.Fprintf(renderTo, "\033[1;1H\033[J")
-			d.renderFrameTo(nil, lastFrameRendered.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows)
+			renderFrameContent(nil, lastFrameRendered.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
+			lastControlBarFC = nil
 		}
+		if showingControlBar {
+			x := 10
+			w := termSz.cols - x - 10
+			if w <= 3 {
+				w = termSz.cols
+				x = 0
+			}
+			y := termSz.rows - 5
+			h := 2
+			if y < 0 {
+				y = 0
+			}
+			sz := sizeStruct{rows: h, cols: w}
+			leftText := ""
+			d.updateSignal.L.Lock()
+			_, currentTimeOffset := d.frameIdLookup(d.renderingFrameId)
+			_, totalTime := d.frameIdLookup(d.lastFrameId)
+			progress := currentTimeOffset / totalTime
+			xThreshold := int(progress * float64(sz.cols))
+			if d.paused {
+				leftText = fmt.Sprintf(" paused at frame %v (%vs/%vs)", currentRenderingFrameId, uint64(currentTimeOffset), uint64(totalTime))
+			} else {
+				leftText = fmt.Sprintf(" playing at frame %v (%vs/%vs)", currentRenderingFrameId, uint64(currentTimeOffset), uint64(totalTime))
+			}
+			d.updateSignal.L.Unlock()
+			controlBarFc := make(frameContent, w*h)
+			for i := 0; i < len(controlBarFc); i++ {
+				controlBarFc[i].style.fg = color.RGBA{88, 30, 137, 255}
+				controlBarFc[i].style.bg = color.RGBA{255, 255, 255, 255}
+				controlBarFc[i].chars = []rune{' '}
+				if i >= sz.cols {
+					// second row
+					controlBarFc[i].style.underline = true
+					x := i - sz.cols
+					if x < len(leftText) {
+						controlBarFc[i].chars = []rune{rune(leftText[x])}
+					}
+				} else {
+					// first row, current x = i
+					if i < xThreshold {
+						controlBarFc[i].chars = []rune("=")
+					} else if i == xThreshold {
+						controlBarFc[i].chars = []rune(">")
+					}
+				}
+			}
+			renderFrameContent(lastControlBarFC, controlBarFc, renderTo, x, y, w, h, sz)
+			lastControlBarFC = controlBarFc
+		} else {
+			lastControlBarFC = nil
+		}
+		controlBarShowedLastFrame = showingControlBar
 	}
 }
 
@@ -444,7 +512,7 @@ func (d *decoderState) inputReaderThread() {
 		if err != nil {
 			panic(err)
 		}
-		if leader == '\x03' {
+		if leader == '\x03' || leader == 'q' {
 			d.updateSignal.L.Lock()
 			d.exiting = true
 			d.updateSignal.Broadcast()
@@ -453,6 +521,53 @@ func (d *decoderState) inputReaderThread() {
 		} else if leader == 12 {
 			d.updateSignal.L.Lock()
 			d.nextTimeForceRedraw = true
+			d.updateSignal.Broadcast()
+			d.updateSignal.L.Unlock()
+		} else if leader == ' ' || leader == 'k' {
+			d.updateSignal.L.Lock()
+			if d.paused {
+				before := time.Now().Add(time.Second)
+				d.showControlBarBefore = &before
+			}
+			d.paused = !d.paused
+			d.updateSignal.Broadcast()
+			d.updateSignal.L.Unlock()
+		} else if leader == ',' || leader == '.' {
+			d.updateSignal.L.Lock()
+			d.paused = true
+			if leader == ',' && d.renderingFrameId > 0 {
+				// perv frame
+				d.renderingFrameId--
+			} else if leader == '.' && d.renderingFrameId < d.lastFrameId {
+				d.renderingFrameId++
+			}
+			d.updateSignal.Broadcast()
+			d.updateSignal.L.Unlock()
+		} else if leader == 'j' || leader == 'l' {
+			d.updateSignal.L.Lock()
+			_, currentTimeOffset := d.frameIdLookup(d.renderingFrameId)
+			if leader == 'j' {
+				currentTimeOffset -= 5
+			} else if leader == 'l' {
+				currentTimeOffset += 5
+			}
+			nextFrameId, _ := d.searchForFrame(currentTimeOffset)
+			if d.renderingFrameId != nextFrameId {
+				d.renderingFrameId = nextFrameId
+			}
+			before := time.Now().Add(time.Second)
+			d.showControlBarBefore = &before
+			d.updateSignal.Broadcast()
+			d.updateSignal.L.Unlock()
+		} else if leader == '$' {
+			d.updateSignal.L.Lock()
+			d.renderingFrameId = d.lastFrameId
+			d.paused = true
+			d.updateSignal.Broadcast()
+			d.updateSignal.L.Unlock()
+		} else if leader == '^' || leader == '0' {
+			d.updateSignal.L.Lock()
+			d.renderingFrameId = 0
 			d.updateSignal.Broadcast()
 			d.updateSignal.L.Unlock()
 		}
@@ -502,10 +617,6 @@ func (d *decoderState) loadFramesThread() {
 			d.renderCacheLock.Lock()
 			d.renderCache[finfo.index] = frameToRender{frameId: finfo.index, frameContent: content, duration: finfo.duration}
 			d.renderCacheLock.Unlock()
-			log("d = %v", finfo.duration)
-		}
-
-		if len(framesToLoad) > 0 {
 			d.updateSignal.L.Lock()
 			d.updateSignal.Broadcast()
 			d.updateSignal.L.Unlock()
