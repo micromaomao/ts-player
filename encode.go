@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/golang/protobuf/proto"
-	"github.com/mattn/go-libvterm"
+	"github.com/micromaomao/go-libvterm"
 	"github.com/valyala/gozstd"
 	"image/color"
 	"io"

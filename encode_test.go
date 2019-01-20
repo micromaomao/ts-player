@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/mattn/go-libvterm"
+	"github.com/micromaomao/go-libvterm"
 	"image/color"
 	"math/rand"
 	"strconv"

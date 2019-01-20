@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/mattn/go-isatty"
-	"github.com/mattn/go-libvterm"
+	"github.com/micromaomao/go-libvterm"
 	"github.com/pkg/term/termios"
 	"os"
 	"os/signal"

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/mattn/go-isatty"
-	"github.com/mattn/go-libvterm"
+	"github.com/micromaomao/go-libvterm"
 	"github.com/valyala/gozstd"
 	"image/color"
 	"io"
