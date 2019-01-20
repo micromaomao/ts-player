@@ -221,6 +221,12 @@ func (d *decoderState) searchForFrame(time float64) (frameId uint64, indexEntry 
 	j = len(frames)
 	for {
 		if i >= j || i >= len(frames) {
+			if j-1 < 0 {
+				j = 1
+			}
+			if j > len(frames) {
+				j = len(frames)
+			}
 			return uint64(j - 1), frames[j-1]
 		}
 		mid := (i + j) / 2
