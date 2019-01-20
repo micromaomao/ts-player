@@ -56,6 +56,9 @@ func doOpPlay(opt options) {
 		fmt.Fprintf(os.Stderr, "Stdin and/or stdout are not terminals!")
 		os.Exit(1)
 	}
+	if isatty.IsTerminal(2) {
+		os.Stderr.Close()
+	}
 	d := initPlayer(opt)
 	initTtyAttr := termSetRaw()
 	fmt.Fprintf(os.Stdout, "\033[1049h")

@@ -80,6 +80,9 @@ func doOpRecord(opt options) {
 	r.slave = slave
 	initTermSize := termGetSize()
 	termSetSize(slave.Fd(), initTermSize)
+	if isatty.IsTerminal(2) {
+		os.Stderr.Close()
+	}
 	initAttr := termSetRaw()
 	r.termInitAttr = &initAttr
 	err = termios.Tcsetattr(slave.Fd(), termios.TCSANOW, &initAttr)
