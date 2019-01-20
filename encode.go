@@ -112,10 +112,10 @@ func (e *encoderState) resetVT(opt options) {
 	vtScr.Reset(true)
 	vtScr.EnableAltScreen(true)
 	tState := e.t.ObtainState()
-	tState.SetDefaultColors(uint32ToColor(opt.stage.indexedColors[0]), uint32ToColor(opt.stage.indexedColors[1]))
+	tState.SetDefaultColors(vterm.NewVTermColorRGB(uint32ToColor(opt.stage.indexedColors[0])), vterm.NewVTermColorRGB(uint32ToColor(opt.stage.indexedColors[1])))
 	for i := 2; i < 18; i++ {
 		col := uint32ToColor(opt.stage.indexedColors[i])
-		tState.SetPaletteColor(i-2, col)
+		tState.SetPaletteColor(i-2, vterm.NewVTermColorRGB(col))
 	}
 	e.t.Write([]byte("\033[39;49;0m\033[2J"))
 }
@@ -216,19 +216,21 @@ type frameContent []frameCell
 type frameCell struct {
 	chars []rune
 	style struct {
-		fg        color.RGBA // =bg if reverse
-		bg        color.RGBA // =fg if reverse
-		bold      bool       // bold | blink
+		fg        vterm.VTermColor // =bg if reverse
+		bg        vterm.VTermColor // =fg if reverse
+		bold      bool             // bold | blink
 		underline bool
 	}
 }
 
 const (
-	cellAttrcodeBold      uint64 = 1
-	cellAttrcodeUnderline uint64 = 2
+	cellAttrcodeBold           uint64 = 1
+	cellAttrcodeUnderline      uint64 = 2
+	cellAttrcodeFgIndexedColor uint64 = 1 << (8 * 7)
+	cellAttrcodeBgIndexedColor uint64 = 1 << (8*7 + 1)
 )
 
-func (c *frameCell) styleFromAttrs(attrs *vterm.Attrs, bg, fg color.RGBA) {
+func (c *frameCell) styleFromAttrs(attrs *vterm.Attrs, bg, fg vterm.VTermColor) {
 	if attrs.Blink > 0 || attrs.Bold > 0 || attrs.Italic > 0 {
 		c.style.bold = true
 	}
@@ -247,19 +249,27 @@ func (c *frameCell) attrCode() uint64 {
 	//    7  6  5  4  3  2  1  0
 	// 0x 00 RR GG BB rr gg bb bu
 	//      |---fg---|---bg---|fontattr
-	fR := c.style.fg.R
-	fG := c.style.fg.G
-	fB := c.style.fg.B
-	bR := c.style.bg.R
-	bG := c.style.bg.G
-	bB := c.style.bg.B
 	var num uint64 = 0
-	num += uint64(fR) << (8 * 6)
-	num += uint64(fG) << (8 * 5)
-	num += uint64(fB) << (8 * 4)
-	num += uint64(bR) << (8 * 3)
-	num += uint64(bG) << (8 * 2)
-	num += uint64(bB) << (8 * 1)
+	if c.style.fg.IsRGB() {
+		fR, fG, fB, _ := c.style.fg.GetRGB()
+		num += uint64(fR) << (8 * 6)
+		num += uint64(fG) << (8 * 5)
+		num += uint64(fB) << (8 * 4)
+	} else {
+		index, _ := c.style.fg.GetIndex()
+		num += uint64(index) << (8 * 4)
+		num |= cellAttrcodeFgIndexedColor
+	}
+	if c.style.bg.IsRGB() {
+		bR, bG, bB, _ := c.style.bg.GetRGB()
+		num += uint64(bR) << (8 * 3)
+		num += uint64(bG) << (8 * 2)
+		num += uint64(bB) << (8 * 1)
+	} else {
+		index, _ := c.style.bg.GetIndex()
+		num += uint64(index) << (8 * 1)
+		num |= cellAttrcodeBgIndexedColor
+	}
 	if c.style.bold {
 		num |= cellAttrcodeBold
 	}
@@ -277,20 +287,37 @@ func (c *frameCell) fromAttrCode(code uint64) {
 	if code&cellAttrcodeUnderline > 0 {
 		c.style.underline = true
 	}
+	var fgIndexed, bgIndexed bool
+	if code&cellAttrcodeFgIndexedColor > 0 {
+		fgIndexed = true
+	}
+	if code&cellAttrcodeBgIndexedColor > 0 {
+		bgIndexed = true
+	}
 	code >>= 8
 	bB := uint8(code % 256)
+	bIndex := bB
 	code >>= 8
 	bG := uint8(code % 256)
 	code >>= 8
 	bR := uint8(code % 256)
 	code >>= 8
 	fB := uint8(code % 256)
+	fIndex := fB
 	code >>= 8
 	fG := uint8(code % 256)
 	code >>= 8
 	fR := uint8(code % 256)
-	c.style.fg = color.RGBA{R: fR, G: fG, B: fB, A: 255}
-	c.style.bg = color.RGBA{R: bR, G: bG, B: bB, A: 255}
+	if !fgIndexed {
+		c.style.fg = vterm.NewVTermColorRGB(color.RGBA{R: fR, G: fG, B: fB, A: 255})
+	} else {
+		c.style.fg = vterm.NewVTermColorIndexed(fIndex)
+	}
+	if !bgIndexed {
+		c.style.bg = vterm.NewVTermColorRGB(color.RGBA{R: bR, G: bG, B: bB, A: 255})
+	} else {
+		c.style.bg = vterm.NewVTermColorIndexed(bIndex)
+	}
 }
 
 func (c *frameCell) toOutput() string {
@@ -302,7 +329,23 @@ func (c *frameCell) toOutput() string {
 	if c.style.underline {
 		underline = "\033[4m"
 	}
-	return fmt.Sprintf("\033[48;2;%d;%d;%dm\033[38;2;%d;%d;%dm%v%v%v", c.style.bg.R, c.style.bg.G, c.style.bg.B, c.style.fg.R, c.style.fg.G, c.style.fg.B, bold, underline, string(c.chars))
+	bgCode := ""
+	if c.style.bg.IsRGB() {
+		r, g, b, _ := c.style.bg.GetRGB()
+		bgCode = fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b)
+	} else {
+		index, _ := c.style.bg.GetIndex()
+		bgCode = fmt.Sprintf("\033[48;5;%dm", index)
+	}
+	fgCode := ""
+	if c.style.fg.IsRGB() {
+		r, g, b, _ := c.style.fg.GetRGB()
+		fgCode = fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
+	} else {
+		index, _ := c.style.fg.GetIndex()
+		fgCode = fmt.Sprintf("\033[38;5;%dm", index)
+	}
+	return bgCode + fgCode + bold + underline + string(c.chars)
 }
 
 func (e *encoderState) newFrameContent() frameContent {
@@ -363,7 +406,7 @@ func (e *encoderState) inputToFrameContentSize(input []byte, ctSz sizeStruct) fr
 			if len(cell.chars) == 0 {
 				cell.chars = []rune{' '}
 			}
-			cell.styleFromAttrs(termCell.Attrs(), termCell.Bg().(color.RGBA), termCell.Fg().(color.RGBA))
+			cell.styleFromAttrs(termCell.Attrs(), termCell.Bg(), termCell.Fg())
 			fc.setCellAt(row, col, cell, &e.size)
 		}
 	}

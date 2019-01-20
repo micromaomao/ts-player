@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/mattn/go-libvterm"
 	"image/color"
 	"math/rand"
 	"strconv"
@@ -13,17 +14,33 @@ func Test_frameCell_attrCode(t *testing.T) {
 		fs.chars = []rune("")
 		fs.style.bold = rand.Intn(2) == 0
 		fs.style.underline = rand.Intn(2) == 0
-		fs.style.fg = randColor()
-		fs.style.bg = randColor()
-		code := fs.attrCode()
-		t.Run(strconv.FormatUint(code, 16), func(t *testing.T) {
-			nfs := frameCell{}
-			nfs.fromAttrCode(code)
-			if nfs.style != fs.style {
-				t.Errorf("Expected %v, got %v", strconv.FormatUint(code, 16), strconv.FormatUint(nfs.attrCode(), 16))
+		for index := 0; index < 4; index++ {
+			if index&1 > 0 {
+				fs.style.fg = vterm.NewVTermColorIndexed(uint8(rand.Intn(256)))
+			} else {
+				fs.style.fg = vterm.NewVTermColorRGB(randColor())
 			}
-		})
+
+			if index&2 > 0 {
+				fs.style.bg = vterm.NewVTermColorIndexed(uint8(rand.Intn(256)))
+			} else {
+				fs.style.bg = vterm.NewVTermColorRGB(randColor())
+			}
+
+			doAttrCodeTest(fs, t)
+		}
 	}
+}
+
+func doAttrCodeTest(fs frameCell, t *testing.T) {
+	code := fs.attrCode()
+	t.Run(strconv.FormatUint(code, 16), func(t *testing.T) {
+		nfs := frameCell{}
+		nfs.fromAttrCode(code)
+		if nfs.style != fs.style {
+			t.Errorf("Expected %v, got %v", fs, nfs)
+		}
+	})
 }
 
 func randColor() color.RGBA {

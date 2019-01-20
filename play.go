@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/mattn/go-isatty"
+	"github.com/mattn/go-libvterm"
 	"github.com/valyala/gozstd"
 	"image/color"
 	"io"
@@ -56,10 +57,10 @@ func doOpPlay(opt options) {
 		fmt.Fprintf(os.Stderr, "Stdin and/or stdout are not terminals!")
 		os.Exit(1)
 	}
+	d := initPlayer(opt)
 	if isatty.IsTerminal(2) {
 		os.Stderr.Close()
 	}
-	d := initPlayer(opt)
 	initTtyAttr := termSetRaw()
 	fmt.Fprintf(os.Stdout, "\033[1049h")
 	go d.uiThread()
@@ -483,8 +484,8 @@ func (d *decoderState) uiThread() {
 			d.updateSignal.L.Unlock()
 			controlBarFc := make(frameContent, w*h)
 			for i := 0; i < len(controlBarFc); i++ {
-				controlBarFc[i].style.fg = color.RGBA{88, 30, 137, 255}
-				controlBarFc[i].style.bg = color.RGBA{255, 255, 255, 255}
+				controlBarFc[i].style.fg = vterm.NewVTermColorRGB(color.RGBA{88, 30, 137, 255})
+				controlBarFc[i].style.bg = vterm.NewVTermColorRGB(color.RGBA{255, 255, 255, 255})
 				controlBarFc[i].chars = []rune{' '}
 				if i >= sz.cols {
 					// second row
