@@ -24,9 +24,10 @@ type recorderState struct {
 	termInitAttr  *syscall.Termios
 	startTime     time.Time
 
-	lastFrameId             uint64
-	lastFrameContentToWrite frameContent
-	lastTime                *time.Time
+	lastFrameId     uint64
+	lastTime        time.Time
+	outputBuffer    []byte
+	frameBufferLock *sync.Mutex
 }
 
 func doOpRecord(opt options) {
@@ -86,6 +87,9 @@ func doOpRecord(opt options) {
 		panic(err)
 	}
 	r.startTime = time.Now()
+	r.lastTime = r.startTime
+	r.lastFrameId = 0
+	r.outputBuffer = make([]byte, 0, 1000000)
 	procAttr := &os.ProcAttr{}
 	procAttr.Files = make([]*os.File, 3)
 	procAttr.Files[0] = slave
@@ -97,11 +101,13 @@ func doOpRecord(opt options) {
 	}
 	r.process = proc
 	r.finalWorkLock = &sync.Mutex{}
+	r.frameBufferLock = &sync.Mutex{}
 	r.signalChannel = make(chan os.Signal)
 	signal.Notify(r.signalChannel, syscall.SIGWINCH, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	go r.signalHandlerThread()
 	go r.stdinReader()
 	go r.masterReader()
+	go r.frameWriterThread()
 	_, err = r.process.Wait()
 	r.doFinalWorkAndExit()
 }
@@ -132,17 +138,14 @@ func (r *recorderState) signalHandlerThread() {
 
 func (r *recorderState) doFinalWorkAndExit() {
 	r.finalWorkLock.Lock()
-	if r.lastFrameContentToWrite != nil {
-		now := time.Now()
-		lastFinfo := frame{}
-		lastFinfo.time = float64(r.lastTime.Sub(r.startTime)) / float64(time.Second)
-		lastFinfo.duration = float64(now.Sub(*r.lastTime)) / float64(time.Second)
-		lastFinfo.index = r.lastFrameId
-		r.encoder.writeFrame(&lastFinfo, r.lastFrameContentToWrite)
-		r.lastFrameContentToWrite = nil
+	if r.exited {
+		// should not happen
+		r.finalWorkLock.Unlock()
+		panic("!")
 	}
 	r.exited = true
 	termRestore(*r.termInitAttr)
+	r.frameBufferLock.Lock()
 	r.encoder.finalize()
 	os.Exit(0)
 }
@@ -152,7 +155,7 @@ func (r *recorderState) stdinReader() {
 		if r.exited {
 			return
 		}
-		buf := make([]byte, 100)
+		buf := make([]byte, 1000000)
 		n, _ := os.Stdin.Read(buf)
 		if r.exited {
 			return
@@ -177,11 +180,11 @@ func (r *recorderState) stdinReader() {
 }
 
 func (r *recorderState) masterReader() {
+	buf := make([]byte, 1000000)
 	for {
 		if r.exited {
 			return
 		}
-		buf := make([]byte, 1000000)
 		n, _ := r.master.Read(buf)
 		if r.exited {
 			return
@@ -189,29 +192,43 @@ func (r *recorderState) masterReader() {
 		if n == 0 {
 			continue
 		}
-		buf = buf[0:n]
-		os.Stdout.Write(buf) // TODO: split this
-		r.finalWorkLock.Lock()
-		// at this point, we are sure that r isn't finalizing, so we can safely write more frames.
-		// if r is indeed finalizing, we won't ever get here.
+		readBuf := buf[0:n]
+		os.Stdout.Write(readBuf)
+		perf := time.Now()
 		if r.exited {
-			fmt.Fprintf(os.Stderr, "Lock held, but r.exited is true! Something went wrong.")
 			return
 		}
-		now := time.Now()
-		if r.lastFrameContentToWrite != nil {
-			lastFinfo := frame{}
-			lastFinfo.time = float64(r.lastTime.Sub(r.startTime)) / float64(time.Second)
-			lastFinfo.duration = float64(now.Sub(*r.lastTime)) / float64(time.Second)
-			lastFinfo.index = r.lastFrameId
-			fmt.Fprintf(os.Stderr, "frame %v: t=%v, d=%v", lastFinfo.index, lastFinfo.time, lastFinfo.duration)
-			r.encoder.writeFrame(&lastFinfo, r.lastFrameContentToWrite)
-			r.lastFrameId++
+		r.frameBufferLock.Lock()
+		r.outputBuffer = append(r.outputBuffer, readBuf...)
+		r.frameBufferLock.Unlock()
+		timeUsed := time.Now().Sub(perf)
+		fmt.Fprintf(os.Stderr, "received %v within %v\n", strconv.Quote(string(readBuf)), timeUsed)
+	}
+}
+
+func (r *recorderState) frameWriterThread() {
+	for {
+		if r.exited {
+			return
 		}
-		r.lastFrameContentToWrite = r.encoder.inputToFrameContent(buf)
-		r.lastTime = &now
+		r.frameBufferLock.Lock()
+		if len(r.outputBuffer) == 0 {
+			r.frameBufferLock.Unlock()
+			continue
+		}
+		now := time.Now()
+		finfo := frame{}
+		finfo.time = float64(r.lastTime.Sub(r.startTime)) / float64(time.Second)
+		finfo.duration = float64(now.Sub(r.lastTime)) / float64(time.Second)
+		finfo.index = r.lastFrameId
+		finfo.data = r.outputBuffer
+		r.lastFrameId++
+		r.lastTime = now
+		r.outputBuffer = make([]byte, 0, 1000000)
+		r.frameBufferLock.Unlock()
+		r.finalWorkLock.Lock()
+		ct := r.encoder.inputToFrameContent(finfo.data)
+		r.encoder.writeFrame(&finfo, ct)
 		r.finalWorkLock.Unlock()
-		fmt.Fprintf(os.Stderr, "received %v\n", strconv.Quote(string(buf)))
-		time.Sleep(20 * time.Millisecond)
 	}
 }
