@@ -114,13 +114,7 @@ func doOpRecord(opt options) {
 
 func (r *recorderState) signalHandlerThread() {
 	for {
-		if r.exited {
-			return
-		}
 		signal := <-r.signalChannel
-		if r.exited {
-			return
-		}
 		switch signal {
 		case syscall.SIGWINCH:
 			nTermSize := termGetSize()
@@ -152,23 +146,14 @@ func (r *recorderState) doFinalWorkAndExit() {
 
 func (r *recorderState) stdinReader() {
 	for {
-		if r.exited {
-			return
-		}
 		buf := make([]byte, 1000000)
 		n, _ := os.Stdin.Read(buf)
-		if r.exited {
-			return
-		}
 		if n == 0 {
 			continue
 		}
 		buf = buf[0:n]
 		written := 0
 		for written < n {
-			if r.exited {
-				return
-			}
 			nowWritten, err := r.master.Write(buf[written:])
 			fmt.Fprintf(os.Stderr, "forwarded %v\n", strconv.Quote(string(buf[written:written+nowWritten])))
 			written += nowWritten
@@ -182,22 +167,13 @@ func (r *recorderState) stdinReader() {
 func (r *recorderState) masterReader() {
 	buf := make([]byte, 1000000)
 	for {
-		if r.exited {
-			return
-		}
 		n, _ := r.master.Read(buf)
-		if r.exited {
-			return
-		}
 		if n == 0 {
 			continue
 		}
 		readBuf := buf[0:n]
 		os.Stdout.Write(readBuf)
 		perf := time.Now()
-		if r.exited {
-			return
-		}
 		r.frameBufferLock.Lock()
 		r.outputBuffer = append(r.outputBuffer, readBuf...)
 		r.frameBufferLock.Unlock()
@@ -208,9 +184,6 @@ func (r *recorderState) masterReader() {
 
 func (r *recorderState) frameWriterThread() {
 	for {
-		if r.exited {
-			return
-		}
 		r.frameBufferLock.Lock()
 		if len(r.outputBuffer) == 0 {
 			r.frameBufferLock.Unlock()
