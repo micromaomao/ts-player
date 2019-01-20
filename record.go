@@ -27,6 +27,7 @@ type recorderState struct {
 	lastFrameId     uint64
 	lastTime        time.Time
 	outputBuffer    []byte
+	lastCt          frameContent
 	frameBufferLock *sync.Mutex
 }
 
@@ -190,22 +191,33 @@ func (r *recorderState) frameWriterThread() {
 		r.frameBufferLock.Lock()
 		if len(r.outputBuffer) == 0 {
 			r.frameBufferLock.Unlock()
+			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 		now := time.Now()
-		finfo := frame{}
-		finfo.time = float64(r.lastTime.Sub(r.startTime)) / float64(time.Second)
-		finfo.duration = float64(now.Sub(r.lastTime)) / float64(time.Second)
-		finfo.index = r.lastFrameId
-		finfo.data = r.outputBuffer
-		r.lastFrameId++
+
+		if r.lastCt != nil {
+			finfo := frame{}
+			finfo.time = float64(r.lastTime.Sub(r.startTime)) / float64(time.Second)
+			finfo.duration = float64(now.Sub(r.lastTime)) / float64(time.Second)
+			finfo.index = r.lastFrameId
+			ct := r.lastCt
+			r.lastFrameId++
+			r.lastCt = nil
+			r.frameBufferLock.Unlock()
+			r.finalWorkLock.Lock()
+			r.encoder.writeFrame(&finfo, ct)
+			r.finalWorkLock.Unlock()
+			r.frameBufferLock.Lock()
+		}
+
 		r.lastTime = now
+		nData := r.outputBuffer
 		r.outputBuffer = make([]byte, 0, 1000000)
 		r.frameBufferLock.Unlock()
 		r.finalWorkLock.Lock()
 		termSize := termGetSize()
-		ct := r.encoder.inputToFrameContentSize(finfo.data, termSize)
-		r.encoder.writeFrame(&finfo, ct)
+		r.lastCt = r.encoder.inputToFrameContentSize(nData, termSize)
 		r.finalWorkLock.Unlock()
 	}
 }
