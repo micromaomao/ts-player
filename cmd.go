@@ -66,7 +66,7 @@ var (
 
 func parseArgs(args []string) (opt options, err error) {
 	err = nil
-	if args[1] == "__rec_exec" && len(args) == 3 {
+	if len(args) == 3 && args[1] == "__rec_exec" {
 		if !isatty.IsTerminal(0) || !isatty.IsTerminal(1) || !isatty.IsTerminal(2) {
 			os.Exit(1)
 		}
