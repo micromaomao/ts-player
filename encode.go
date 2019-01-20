@@ -305,7 +305,11 @@ func (c *frameCell) toOutput() string {
 }
 
 func (e *encoderState) newFrameContent() frameContent {
-	return make(frameContent, e.size.rows*e.size.cols)
+	fc := make(frameContent, e.size.rows*e.size.cols)
+	for i := 0; i < len(fc); i++ {
+		fc[i].chars = []rune{' '}
+	}
+	return fc
 }
 func (f *frameContent) getCellAt(row, col int, size *sizeStruct) *frameCell {
 	index := size.cols*row + col
@@ -317,6 +321,14 @@ func (f *frameContent) setCellAt(row, col int, cell frameCell, size *sizeStruct)
 }
 
 func (e *encoderState) inputToFrameContent(input []byte) frameContent {
+	return e.inputToFrameContentSize(input, e.size)
+}
+
+func (e *encoderState) inputToFrameContentSize(input []byte, ctSz sizeStruct) frameContent {
+	pervRows, pervCols := e.t.Size()
+	if ctSz.rows != pervRows || ctSz.cols != pervCols {
+		e.t.SetSize(ctSz.rows, ctSz.cols)
+	}
 	stepSize := 2000000
 	for i := 0; i < len(input); i += stepSize {
 		// otherwise it segfaults.
@@ -336,8 +348,8 @@ func (e *encoderState) inputToFrameContent(input []byte) frameContent {
 
 	fc := e.newFrameContent()
 	vtScr := e.t.ObtainScreen()
-	for row := 0; row < e.size.rows; row++ {
-		for col := 0; col < e.size.cols; col++ {
+	for row := 0; row < ctSz.rows; row++ {
+		for col := 0; col < ctSz.cols; col++ {
 			cell := frameCell{}
 			termCell, err := vtScr.GetCellAt(row, col)
 			if err != nil {

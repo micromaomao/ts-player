@@ -227,7 +227,8 @@ func (r *recorderState) frameWriterThread() {
 		r.outputBuffer = make([]byte, 0, 1000000)
 		r.frameBufferLock.Unlock()
 		r.finalWorkLock.Lock()
-		ct := r.encoder.inputToFrameContent(finfo.data)
+		termSize := termGetSize()
+		ct := r.encoder.inputToFrameContentSize(finfo.data, termSize)
 		r.encoder.writeFrame(&finfo, ct)
 		r.finalWorkLock.Unlock()
 	}
