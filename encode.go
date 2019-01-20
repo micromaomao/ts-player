@@ -117,6 +117,7 @@ func (e *encoderState) resetVT(opt options) {
 		col := uint32ToColor(opt.stage.indexedColors[i])
 		tState.SetPaletteColor(i-2, col)
 	}
+	e.t.Write([]byte("\033[39;49;0m\033[2J"))
 }
 
 func uint32ToColor(i uint32) color.RGBA {

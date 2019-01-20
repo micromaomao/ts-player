@@ -34,3 +34,21 @@ func randColor() color.RGBA {
 	col.A = 255
 	return col
 }
+
+func Test_uint32ToColor(t *testing.T) {
+	tests := []struct {
+		num  uint32
+		want color.RGBA
+	}{
+		{
+			num: 0xFDF6E3, want: color.RGBA{253, 246, 227, 255},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(strconv.FormatUint(uint64(tt.num), 16), func(t *testing.T) {
+			if got := uint32ToColor(tt.num); got != tt.want {
+				t.Errorf("uint32ToColor() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
