@@ -80,7 +80,7 @@ func doOpEncode(opt options) {
 		}
 		fmt.Fprintf(os.Stderr, "\r\033[1A\033[2KCollecting frames for compression dict (%v%%), t=%vs of %vs read=%v of %v\n", math.Round((float64(f.index)/200)*100), math.Round((f.time+f.duration)*10)/10, totalDuration, humanize.Bytes(bytesRead), totalBytesRead)
 	})
-	e.dict = gozstd.BuildDict(dictSamples, 1024*1024*5)
+	e.dict = gozstd.BuildDict(dictSamples, len(dictSamples)*20)
 	e.cdict, err = gozstd.NewCDict(e.dict)
 	if err != nil {
 		panic(err)
