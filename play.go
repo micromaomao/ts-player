@@ -251,7 +251,29 @@ func (d *decoderState) frameIdLookup(frameId uint64) (byteOffset uint64, timeOff
 	return indexEntry.GetByteOffset(), indexEntry.GetTimeOffset()
 }
 
-func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo *frame, content frameContent, err error, nextOffset uint64) {
+func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo frame, content frameContent, err error, nextOffset uint64) {
+	var frameStruct *ITSFrame
+	frameStruct, nextOffset, err = d.readFrameStructFromOffset(byteOffset)
+	if err != nil {
+		return
+	}
+	defer func() {
+		p := recover()
+		if p != nil {
+			errP, ok := p.(error)
+			if ok {
+				err = errP
+				return
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	frameInfo, content, err = d.decodeFrameStruct(frameStruct)
+	return
+}
+
+func (d *decoderState) readFrameBytesFromOffset(byteOffset uint64) (buf []byte, nextOffset uint64, err error) {
 	_, err = d.file.Seek(int64(byteOffset), os.SEEK_SET)
 	if err != nil {
 		return
@@ -266,7 +288,7 @@ func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo *frame,
 		err = fmt.Errorf("invalid frame byteLength near %x", byteOffset)
 		return
 	}
-	buf := make([]byte, frameByteLen)
+	buf = make([]byte, frameByteLen)
 	d.file.Read(buf)
 	nextOffset = byteOffset + 4 + uint64(frameByteLen)
 	if d.compressed {
@@ -282,30 +304,33 @@ func (d *decoderState) readFrameFromOffset(byteOffset uint64) (frameInfo *frame,
 			}
 		}
 	}
-	frameStruct := &ITSFrame{}
+	return
+}
+
+func (d *decoderState) readFrameStructFromOffset(byteOffset uint64) (frameStruct *ITSFrame, nextOffset uint64, err error) {
+	var buf []byte
+	buf, nextOffset, err = d.readFrameBytesFromOffset(byteOffset)
+	if err != nil {
+		return
+	}
+	frameStruct = &ITSFrame{}
 	err = proto.Unmarshal(buf, frameStruct)
 	if err != nil {
 		return
 	}
-	defer func() {
-		p := recover()
-		if p != nil {
-			err = errors.New("panic!")
-		}
-	}()
-	frameInfo, content = d.decodeFrameStruct(frameStruct)
 	return
 }
 
-func (d *decoderState) decodeFrameStruct(frameStruct *ITSFrame) (frameInfo *frame, content frameContent) {
+func (d *decoderState) decodeFrameStruct(frameStruct *ITSFrame) (frameInfo frame, content frameContent, err error) {
 	if frameStruct.GetType() != ITSFrame_FRAMETYPE_K {
-		panic("Unrecognized frame type")
+		err = errors.New("Unrecognized frame type")
+		return
 	}
-	finfo := &frame{}
-	finfo.index = frameStruct.GetFrameId()
-	finfo.time = frameStruct.GetTimeOffset()
-	finfo.duration = frameStruct.GetDuration()
-	fContent := make(frameContent, d.frameSize.rows*d.frameSize.cols)
+	frameInfo = frame{}
+	frameInfo.index = frameStruct.GetFrameId()
+	frameInfo.time = frameStruct.GetTimeOffset()
+	frameInfo.duration = frameStruct.GetDuration()
+	content = make(frameContent, d.frameSize.rows*d.frameSize.cols)
 	body := frameStruct.GetBodyK()
 	i := 0
 	for row := 0; row < d.frameSize.rows; row++ {
@@ -313,11 +338,11 @@ func (d *decoderState) decodeFrameStruct(frameStruct *ITSFrame) (frameInfo *fram
 			cell := frameCell{}
 			cell.chars = []rune(body.GetContents()[i])
 			cell.fromAttrCode(body.GetAttrs()[i])
-			fContent.setCellAt(row, col, cell, &d.frameSize)
+			content.setCellAt(row, col, cell, &d.frameSize)
 			i++
 		}
 	}
-	return finfo, fContent
+	return
 }
 
 func (c *frameCell) equalsTo(c2 *frameCell) bool {

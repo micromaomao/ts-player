@@ -22,9 +22,10 @@ type options struct {
 }
 
 const (
-	opEncode string = "encode"
-	opPlay   string = "play"
-	opRecord string = "record"
+	opEncode   string = "encode"
+	opPlay     string = "play"
+	opRecord   string = "record"
+	opOptimize string = "optimize"
 )
 
 func main() {
@@ -51,6 +52,8 @@ func main() {
 		doOpPlay(opt)
 	case opRecord:
 		doOpRecord(opt)
+	case opOptimize:
+		doOpOptimize(opt)
 	default:
 		doOpUnknown(opt.operation)
 	}
@@ -94,6 +97,10 @@ func parseArgs(args []string) (opt options, err error) {
 		opt.stage.cols = 300
 		opt.stage.indexedColors = PalettleSolarized
 		opt.fps = 60
+	} else if len(args) == 3 && args[1] == "optimize" {
+		opt.operation = opOptimize
+		opt.itsFile = args[2]
+		opt.output = args[2] + "_optimized"
 	} else {
 		err = fmt.Errorf("syntax: <script> <timing> <output> | <its file> | record <output>")
 	}

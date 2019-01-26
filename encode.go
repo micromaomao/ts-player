@@ -198,7 +198,7 @@ type encoderState struct {
 
 	fileHeader       *ITSHeader
 	headerOffset     uint64
-	headerLen        int
+	maxHeaderLen     int
 	offset           uint64
 	firstFrameOffset uint64
 	index            *ITSIndex
@@ -433,14 +433,25 @@ func (e *encoderState) initOutputFile(fOutput *os.File) {
 	}
 	e.fileHeader.FirstFrameOffset = (1 << 64) - 1
 	e.fileHeader.IndexOffset = (1 << 64) - 1
-	headerLen := proto.Size(e.fileHeader)
-	e.headerLen = headerLen
-	binary.Write(e.fOutput, binary.BigEndian, uint32(headerLen))
-	e.offset += 4
+	e.maxHeaderLen = proto.Size(e.fileHeader)
 	e.headerOffset = e.offset
-	e.fOutput.Write(make([]byte, headerLen))
-	e.offset += uint64(headerLen)
+	binary.Write(e.fOutput, binary.BigEndian, uint32(e.maxHeaderLen))
+	e.offset += 4
+	e.offset += uint64(e.maxHeaderLen)
 	e.firstFrameOffset = e.offset
+	e.fileHeader.FirstFrameOffset = e.firstFrameOffset
+	e.fileHeader.IndexOffset = 0
+	hBuf, err := proto.Marshal(e.fileHeader)
+	if err != nil {
+		panic(err)
+	}
+	if len(hBuf) > e.maxHeaderLen {
+		panic("headerLen increased.")
+	}
+	e.fOutput.Seek(int64(e.headerOffset), os.SEEK_SET)
+	binary.Write(e.fOutput, binary.BigEndian, uint32(len(hBuf)))
+	e.fOutput.Write(hBuf)
+	e.fOutput.Seek(int64(e.offset), os.SEEK_SET)
 
 	e.index = &ITSIndex{}
 	e.index.Count = 0
@@ -508,10 +519,12 @@ func (e *encoderState) finalize() {
 	if err != nil {
 		panic(err)
 	}
-	if len(headerBuf) != e.headerLen {
-		panic(fmt.Errorf("length changed from %v to %v", e.headerLen, len(headerBuf)))
+	if len(headerBuf) > e.maxHeaderLen {
+		panic(fmt.Errorf("header length increased from %v to %v", e.maxHeaderLen, len(headerBuf)))
 	}
-	e.fOutput.WriteAt(headerBuf, int64(e.headerOffset))
+	e.fOutput.Seek(int64(e.headerOffset), os.SEEK_SET)
+	binary.Write(e.fOutput, binary.BigEndian, uint32(len(headerBuf)))
+	e.fOutput.Write(headerBuf)
 
 	e.fOutput.Seek(int64(indexOffset), os.SEEK_SET)
 	indexBuf, err := proto.Marshal(e.index)
