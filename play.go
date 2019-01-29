@@ -21,12 +21,13 @@ import (
 )
 
 type decoderState struct {
-	frameSize   sizeStruct
-	index       *ITSIndex
-	lastFrameId uint64
-	compressed  bool
-	ddict       *gozstd.DDict
-	file        *os.File
+	frameSize      sizeStruct
+	index          *ITSIndex
+	lastFrameId    uint64
+	compressed     bool
+	ddict          *gozstd.DDict
+	file           *os.File
+	translateColor *colorProfile
 
 	renderingFrameId     uint64
 	updateSignal         *sync.Cond
@@ -45,11 +46,6 @@ type frameToRender struct {
 	frameId      uint64
 	frameContent frameContent
 	duration     float64
-}
-
-func log(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, format, args...)
-	os.Stderr.WriteString("\n")
 }
 
 func doOpPlay(opt options) {
@@ -210,6 +206,16 @@ func initPlayer(opt options) *decoderState {
 
 	d.renderingFrameId = 0
 	d.paused = false
+
+	if opt.colorProfileInput != "" {
+		cf, err := processColorProfile(opt.colorProfileInput)
+		if err != nil {
+			panic(err)
+		}
+		d.translateColor = &cf
+	} else {
+		d.translateColor = nil
+	}
 	return d
 }
 
@@ -355,7 +361,7 @@ func (c *frameCell) equalsTo(c2 *frameCell) bool {
 	return true
 }
 
-func renderFrameContent(perv, next frameContent, out io.Writer, dx, dy, dw, dh int, frameSize sizeStruct) {
+func (d *decoderState) renderFrameContent(perv, next frameContent, out io.Writer, dx, dy, dw, dh int, frameSize sizeStruct) {
 	var cursorRow, cursorCol int
 	fmt.Fprintf(out, "\033[%v;%vH", dy+1, dx+1)
 	var lastAttr uint64
@@ -380,7 +386,7 @@ func renderFrameContent(perv, next frameContent, out io.Writer, dx, dy, dw, dh i
 				// no need to output attr
 				out.Write([]byte(string(cell.chars)))
 			} else {
-				out.Write([]byte(cell.toOutput()))
+				out.Write([]byte(cell.toOutput(d.translateColor)))
 			}
 			cursorCol++
 		}
@@ -455,7 +461,7 @@ func (d *decoderState) uiThread() {
 					if pervFrameContent == nil {
 						fmt.Fprintf(renderTo, "\033[J")
 					}
-					renderFrameContent(pervFrameContent, frameToDraw.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
+					d.renderFrameContent(pervFrameContent, frameToDraw.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
 					lastControlBarFC = nil
 					lastFrameRendered = &frameToDraw
 					nextFrameWithin := time.Duration(frameToDraw.duration*1000) * time.Millisecond
@@ -473,13 +479,13 @@ func (d *decoderState) uiThread() {
 					d.updateSignal.L.Unlock()
 				} else if lastFrameRendered != nil && needsForcedRedraw {
 					fmt.Fprintf(renderTo, "\033[1;1H\033[J")
-					renderFrameContent(nil, lastFrameRendered.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
+					d.renderFrameContent(nil, lastFrameRendered.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
 					lastControlBarFC = nil
 				}
 			}
 		} else if needsForcedRedraw {
 			fmt.Fprintf(renderTo, "\033[1;1H\033[J")
-			renderFrameContent(nil, lastFrameRendered.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
+			d.renderFrameContent(nil, lastFrameRendered.frameContent, renderTo, 0, 0, termSz.cols, termSz.rows, d.frameSize)
 			lastControlBarFC = nil
 		}
 		if showingControlBar {
@@ -528,7 +534,7 @@ func (d *decoderState) uiThread() {
 					}
 				}
 			}
-			renderFrameContent(lastControlBarFC, controlBarFc, renderTo, x, y, w, h, sz)
+			d.renderFrameContent(lastControlBarFC, controlBarFc, renderTo, x, y, w, h, sz)
 			lastControlBarFC = controlBarFc
 		} else {
 			lastControlBarFC = nil

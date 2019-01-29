@@ -8,13 +8,15 @@ ts-player - terminal recorder and player
 
 USAGE
 -----
-*ts-player* 'operation' [parameters...]
+*ts-player* 'operation' [parameters...] [--debug]
 
 DESCRIPTION
 -----------
 *ts-player* is a software for recording and playing back terminal activities, much like *script(1)* and *scriptreplay(1)*.
 
 It uses an indexed format, which allows quick random seeking even for very long recordings.
+
+The global option *--debug* causes *ts-player* to print debug log to `stderr`. However, when playing back recording, this won't work unless you redirect `stderr` to some file (e.g. `2>log`).
 
 OPERATIONS
 ----------
@@ -26,7 +28,9 @@ OPERATIONS
 
 *optimize*:: rebuild index (for uncleanly terminated recordings) and optimize compression.
 
-*get-color-profile*:: See *-c* option below.
+*get-color-profile*:: Output a color pattern that can be used as a terminal color profile if a screenshot is taken of it. See *-c* option below.
+
+*check-color-profile*:: Print out values from a color profile image.
 
 USAGE FOR `RECORD`
 ------------------
@@ -45,7 +49,7 @@ Bypass the initial `isatty` check on stdin and stdout.
 Control the speed of sampling. This is the rate at which frame is written when there is always new output. If output stops for some period of time, only one frame will be written for that period. However, the real rate may be limited by cpu. Default is 60.
 
 *-c* 'color profile'::
-Write all color information as RGB, using the supplied color profile file to convert from terminal 256-bit color to RGB color.
+Write all color information as RGB, using the supplied color profile image to convert from terminal 256-bit color to RGB color.
 +
 Without this flag, the output file will contain the value of the color index as is, when RGB color is not used by the output escape sequences. This means that the resulting recording may appear differently when played back from different terminal. Supplying this flag avoids this problem by writing only RGB values.
 +
@@ -62,7 +66,7 @@ ts-player encode [-f 'fps'] [-c 'color profile'] [--buffer-size=__rows__x__cols_
 Control the speed of sampling. This is the rate at which frame is written when there is always new output. If output stops for some period of time, only one frame will be written for that period.
 
 *-c* 'color profile'::
-Write all color information as RGB, using the supplied color profile file to convert from terminal 256-bit color to RGB color.
+Write all color information as RGB, using the supplied color profile image to convert from terminal 256-bit color to RGB color.
 +
 Without this flag, the output file will contain the value of the color index as is, when RGB color is not used by the escape sequences in input script. This means that the resulting recording may appear differently when played back from different terminal (just like with *scriptreplay*). Supplying this flag avoids this problem by writing only RGB values.
 +
@@ -79,6 +83,9 @@ ts-player play [--even-if-not-tty] '<indexed recording file>'
 
 This starts the player, playing the specified file. *--even-if-not-tty* bypasses the initial `isatty` check on `stdin` and `stdout`.
 
+*-c* 'color profile'::
+Instead of outputing 8-bit color escape codes, translate 8-bit colors in recording to RGB with the specified color profile.
+
 USAGE FOR `OPTIMIZE`
 --------------------
 ts-player optimize [--buffer-size=__rows__x__cols__] '<input>' '<output>'
@@ -92,11 +99,15 @@ Set the size used to interpret the frames in the input file *if* its header is d
 
 USAGE FOR `GET-COLOR-PROFILE`
 -----------------------------
-ts-player get-color-profile [--even-if-not-tty] [--just-print-pattern|--just-process-screenshot=__<screenshot.png>__] ['output file']
+ts-player get-color-profile [--even-if-not-tty]
 
-Sample the color profile of a terminal by asking user to take a screenshot of a pattern.
+Prints a color pattern which the user can take a screenshot of and use as a color profile.
 
-*--just-print-pattern* causes *ts-player* to print the color pattern and exit. *--just-process-screenshot* takes a screenshot of a color pattern printed by *ts-player* and output the color profile. Both flag must not present at one. If neither, *ts-player* will prompt the user.
+USAGE FOR `CHECK-COLOR-PROFILE`
+-------------------------------
+ts-player check-color-profile '<input image>'
+
+Print out values from a color profile image.
 
 EXIT STATUS
 -----------

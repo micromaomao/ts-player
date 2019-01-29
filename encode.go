@@ -321,7 +321,7 @@ func (c *frameCell) fromAttrCode(code uint64) {
 	}
 }
 
-func (c *frameCell) toOutput() string {
+func (c *frameCell) toOutput(translateColor *colorProfile) string {
 	bold := "\033[22m"
 	underline := "\033[24m"
 	if c.style.bold {
@@ -336,7 +336,12 @@ func (c *frameCell) toOutput() string {
 		bgCode = fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b)
 	} else {
 		index, _ := c.style.bg.GetIndex()
-		bgCode = fmt.Sprintf("\033[48;5;%dm", index)
+		if translateColor != nil {
+			rgb := translateColor.palettle[index]
+			bgCode = fmt.Sprintf("\033[48;2;%d;%d;%dm", rgb.R, rgb.G, rgb.B)
+		} else {
+			bgCode = fmt.Sprintf("\033[48;5;%dm", index)
+		}
 	}
 	fgCode := ""
 	if c.style.fg.IsRGB() {
@@ -344,7 +349,12 @@ func (c *frameCell) toOutput() string {
 		fgCode = fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
 	} else {
 		index, _ := c.style.fg.GetIndex()
-		fgCode = fmt.Sprintf("\033[38;5;%dm", index)
+		if translateColor != nil {
+			rgb := translateColor.palettle[index]
+			fgCode = fmt.Sprintf("\033[38;2;%d;%d;%dm", rgb.R, rgb.G, rgb.B)
+		} else {
+			fgCode = fmt.Sprintf("\033[38;5;%dm", index)
+		}
 	}
 	return bgCode + fgCode + bold + underline + string(c.chars)
 }

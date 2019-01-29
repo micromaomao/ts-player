@@ -10,6 +10,8 @@ import (
 	"syscall"
 )
 
+var outputDebugLog = false
+
 type options struct {
 	operation         string
 	fps               int
@@ -25,19 +27,24 @@ type options struct {
 	timing string
 
 	itsInput string
-
-	colorProfileOutput      string
-	justPrintPattern        bool
-	justProcessScreenshotIn string
 }
 
 const (
-	opEncode          = "encode"
-	opPlay            = "play"
-	opRecord          = "record"
-	opOptimize        = "optimize"
-	opGetColorProfile = "get-color-profile"
+	opEncode            = "encode"
+	opPlay              = "play"
+	opRecord            = "record"
+	opOptimize          = "optimize"
+	opGetColorProfile   = "get-color-profile"
+	opCheckColorProfile = "check-color-profile"
 )
+
+func log(format string, args ...interface{}) {
+	if !outputDebugLog {
+		return
+	}
+	fmt.Fprintf(os.Stderr, format, args...)
+	os.Stderr.WriteString("\n")
+}
 
 func main() {
 	opt, err := parseArgs(os.Args)
@@ -65,8 +72,13 @@ func main() {
 		doOpRecord(opt)
 	case opOptimize:
 		doOpOptimize(opt)
+	case opGetColorProfile:
+		doOpGetColorProfile(opt)
+	case opCheckColorProfile:
+		doOpCheckColorProfile(opt)
 	default:
-		doOpUnknown(opt.operation)
+		// default case handled by parseArgs
+		panic("!")
 	}
 }
 
@@ -114,6 +126,11 @@ func parseArgs(args []string) (opt options, err error) {
 			continue
 		}
 
+		if currentArg == "--debug" {
+			outputDebugLog = true
+			continue
+		}
+
 		if currentArg == "-f" && (opt.operation == opRecord || opt.operation == opEncode) {
 			if !hasNextArg {
 				err = fmt.Errorf("-f <fps>")
@@ -127,7 +144,7 @@ func parseArgs(args []string) (opt options, err error) {
 			continue
 		}
 
-		if currentArg == "-c" && (opt.operation == opRecord || opt.operation == opEncode) {
+		if currentArg == "-c" && (opt.operation == opRecord || opt.operation == opEncode || opt.operation == opPlay) {
 			if !hasNextArg {
 				err = fmt.Errorf("-c <color profile file>")
 				return
@@ -234,35 +251,17 @@ func parseArgs(args []string) (opt options, err error) {
 			}
 		}
 
-		if opt.operation == opGetColorProfile {
-			if currentArg == "--just-print-pattern" {
-				opt.justPrintPattern = true
-				continue
-			}
-			const ddJustProcessScreenshot = "--just-process-screenshot"
-			if strings.HasPrefix(currentArg, ddJustProcessScreenshot) {
-				ss := currentArg[len(ddJustProcessScreenshot):]
-				if ss == "" {
-					err = fmt.Errorf("--just-process-screenshot=???")
-					return
-				}
-				opt.justProcessScreenshotIn = ss
-				continue
-			}
+		if opt.operation == opCheckColorProfile {
 			if currentArg[0] != '-' {
 				if nbNonOptionArgs == 0 {
 					nbNonOptionArgs++
-					opt.colorProfileOutput = currentArg
+					opt.colorProfileInput = currentArg
 					continue
 				}
 			}
 		}
 
 		err = fmt.Errorf("Unused argument %v", strconv.Quote(currentArg))
-		return
-	}
-	if opt.justPrintPattern && opt.justProcessScreenshotIn != "" {
-		err = fmt.Errorf("Only one of --just-print-pattern or --just-process-screenshot may be specified")
 		return
 	}
 	switch opt.operation {
@@ -287,14 +286,18 @@ func parseArgs(args []string) (opt options, err error) {
 			return
 		}
 	case opGetColorProfile:
-		// handled by excess argument check.
+		if nbNonOptionArgs != 0 {
+			err = fmt.Errorf("Expected no additional arguments")
+			return
+		}
+	case opCheckColorProfile:
+		if nbNonOptionArgs != 1 {
+			err = fmt.Errorf("Expected a color profile image as argument")
+			return
+		}
 	default:
 		err = fmt.Errorf("Unknown operation %v", opt.operation)
 		return
 	}
 	return
-}
-
-func doOpUnknown(op string) {
-	panic(fmt.Errorf("unknown operation %v", op))
 }
