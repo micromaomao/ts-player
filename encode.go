@@ -28,9 +28,9 @@ func doOpEncode(opt options) {
 	}
 	bTiming := bufio.NewReader(fTiming)
 	defer fTiming.Close()
-	fOut, err := os.OpenFile(opt.output, os.O_CREATE|os.O_WRONLY, 0600)
+	fOut, err := os.OpenFile(opt.itsOutput, os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		panic(fmt.Errorf("%v when opening %v for writing", err.Error(), opt.output))
+		panic(fmt.Errorf("%v when opening %v for writing", err.Error(), opt.itsOutput))
 	}
 	err = fOut.Truncate(0)
 	if err != nil {
@@ -38,12 +38,12 @@ func doOpEncode(opt options) {
 	}
 	fOut.Seek(0, os.SEEK_SET)
 
-	vt := vterm.New(opt.stage.rows, opt.stage.cols)
+	vt := vterm.New(opt.bufferSize.rows, opt.bufferSize.cols)
 	defer vt.Close()
 	e := &encoderState{}
 	e.t = vt
-	e.size.rows = opt.stage.rows
-	e.size.cols = opt.stage.cols
+	e.size.rows = opt.bufferSize.rows
+	e.size.cols = opt.bufferSize.cols
 
 	os.Stderr.WriteString("Determining total time and frame number...\n")
 	fTiming.Seek(0, os.SEEK_SET)
@@ -111,11 +111,12 @@ func (e *encoderState) resetVT(opt options) {
 	vtScr := e.t.ObtainScreen()
 	vtScr.Reset(true)
 	vtScr.EnableAltScreen(true)
-	tState := e.t.ObtainState()
-	tState.SetDefaultColors(vterm.NewVTermColorRGB(uint32ToColor(opt.stage.indexedColors[0])), vterm.NewVTermColorRGB(uint32ToColor(opt.stage.indexedColors[1])))
+	// tState := e.t.ObtainState()
+	// TODO FIXME
+	// tState.SetDefaultColors(vterm.NewVTermColorRGB(uint32ToColor(opt.stage.indexedColors[0])), vterm.NewVTermColorRGB(uint32ToColor(opt.stage.indexedColors[1])))
 	for i := 2; i < 18; i++ {
-		col := uint32ToColor(opt.stage.indexedColors[i])
-		tState.SetPaletteColor(i-2, vterm.NewVTermColorRGB(col))
+		// col := uint32ToColor(opt.stage.indexedColors[i])
+		// tState.SetPaletteColor(i-2, vterm.NewVTermColorRGB(col))
 	}
 	e.t.Write([]byte("\033[0m\033[2J"))
 }

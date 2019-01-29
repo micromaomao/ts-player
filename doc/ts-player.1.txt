@@ -1,0 +1,113 @@
+TS-PLAYER(1)
+=============
+:doctype: manpage
+
+NAME
+----
+ts-player - terminal recorder and player
+
+USAGE
+-----
+*ts-player* 'operation' [parameters...]
+
+DESCRIPTION
+-----------
+*ts-player* is a software for recording and playing back terminal activities, much like *script(1)* and *scriptreplay(1)*.
+
+It uses an indexed format, which allows quick random seeking even for very long recordings.
+
+OPERATIONS
+----------
+*record*:: fork a shell and start a terminal recording. Recording will end when shell exits. Output will be written to an indexed recording file in *ts-player*'s own format.
+
+*encode*:: convert typescript file to indexed recording file format used by *ts-player*.
+
+*play*:: play back an indexed recording file.
+
+*optimize*:: rebuild index (for uncleanly terminated recordings) and optimize compression.
+
+*get-color-profile*:: See *-c* option below.
+
+USAGE FOR `RECORD`
+------------------
+ts-player record [-s 'shell'] [-q] [--even-if-not-tty] [-f 'fps'] [-c 'color profile'] [--buffer-size=__rows__x__cols__] '<output file>'
+
+*-s* 'shell'::
+Launch a specific 'shell'. If this option is not present, the value of the `SHELL` environmental variable will be used.
+
+*-q*::
+Suppress the initial message.
+
+*--even-if-not-tty*::
+Bypass the initial `isatty` check on stdin and stdout.
+
+*-f* 'output fps'::
+Control the speed of sampling. This is the rate at which frame is written when there is always new output. If output stops for some period of time, only one frame will be written for that period. However, the real rate may be limited by cpu. Default is 60.
+
+*-c* 'color profile'::
+Write all color information as RGB, using the supplied color profile file to convert from terminal 256-bit color to RGB color.
++
+Without this flag, the output file will contain the value of the color index as is, when RGB color is not used by the output escape sequences. This means that the resulting recording may appear differently when played back from different terminal. Supplying this flag avoids this problem by writing only RGB values.
++
+Color profile for this terminal can be generated with `ts-player get-color-profile`.
+
+**--buffer-size=**__rows__x__cols__::
+Set the size of the internal virtual terminal buffer. This option will not influence the output user sees while recording, and will not influence playback as well *as long as* this size is always at least as big as the real terminal size throughout the recording. Default is 300x300. Setting it higher will not make recording slower, but may result in slightly larger output file.
+
+USAGE FOR `ENCODE`
+------------------
+ts-player encode [-f 'fps'] [-c 'color profile'] [--buffer-size=__rows__x__cols__] '<script file>' '<timing file>' '<output>'
+
+*-f* 'output fps'::
+Control the speed of sampling. This is the rate at which frame is written when there is always new output. If output stops for some period of time, only one frame will be written for that period.
+
+*-c* 'color profile'::
+Write all color information as RGB, using the supplied color profile file to convert from terminal 256-bit color to RGB color.
++
+Without this flag, the output file will contain the value of the color index as is, when RGB color is not used by the escape sequences in input script. This means that the resulting recording may appear differently when played back from different terminal (just like with *scriptreplay*). Supplying this flag avoids this problem by writing only RGB values.
++
+Color profile for this terminal can be generated with `ts-player get-color-profile`.
+
+**--buffer-size=**__rows__x__cols__::
+Set the size of the internal virtual terminal buffer. Default is 300x300. Setting it higher will make encoding slower. It is better to set this size to match the original terminal size when the script is produced, otherwise the result may contain less or more line wraps than desired.
++
+Note that the line wrap problem is not a concern when using the `record` operation, as *ts-player* will constantly measure the terminal size to ensure correct line wraps.
+
+USAGE FOR `PLAY`
+----------------
+ts-player play [--even-if-not-tty] '<indexed recording file>'
+
+This starts the player, playing the specified file. *--even-if-not-tty* bypasses the initial `isatty` check on `stdin` and `stdout`.
+
+USAGE FOR `OPTIMIZE`
+--------------------
+ts-player optimize [--buffer-size=__rows__x__cols__] '<input>' '<output>'
+
+Attempt to repair a truncated or an unclean termination of recording by rebuilding its index, and also, re-compress it with an extracted compression directory.
+
+This is required if, for example, `ts-player record` crashed in the middle of an recording or the computer shut down.
+
+**--buffer-size=**__rows__x__cols__::
+Set the size used to interpret the frames in the input file *if* its header is damaged.
+
+USAGE FOR `GET-COLOR-PROFILE`
+-----------------------------
+ts-player get-color-profile [--even-if-not-tty] [--just-print-pattern|--just-process-screenshot=__<screenshot.png>__] ['output file']
+
+Sample the color profile of a terminal by asking user to take a screenshot of a pattern.
+
+*--just-print-pattern* causes *ts-player* to print the color pattern and exit. *--just-process-screenshot* takes a screenshot of a color pattern printed by *ts-player* and output the color profile. Both flag must not present at one. If neither, *ts-player* will prompt the user.
+
+EXIT STATUS
+-----------
+*0*:: Success
+*1*:: Error
+
+AUTHOR
+------
+*ts-player* is written by Mao Wtm <\m@maowtm.org>.
+
+BUGS
+----
+If there are security issues with this software, please send details to \m@maowtm.org. Other bugs can be posted to GitHub Issues:
+https://github.com/micromaomao/ts-player/issues/

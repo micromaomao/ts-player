@@ -12,7 +12,7 @@ import (
 )
 
 func doOpOptimize(opt options) {
-	fIts, err := os.OpenFile(opt.itsFile, os.O_RDONLY, 0)
+	fIts, err := os.OpenFile(opt.itsInput, os.O_RDONLY, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -33,8 +33,8 @@ func doOpOptimize(opt options) {
 		fmt.Fprintf(os.Stderr, "%v\n", err.Error())
 		header.Version = 1
 		header.FirstFrameOffset = uint64(len(FileMagic)) + 4 + uint64(headerLen)
-		header.Rows = 400
-		header.Cols = 300
+		header.Rows = uint32(opt.bufferSize.rows)
+		header.Cols = uint32(opt.bufferSize.cols)
 		header.CompressionMode = ITSHeader_COMPRESSION_ZSTD
 		header.CompressionDict = []byte{}
 		header.IndexOffset = 1 << 63
@@ -73,9 +73,9 @@ func doOpOptimize(opt options) {
 		panic("Unknown compression mode")
 	}
 	d.file = fIts
-	fOut, err := os.OpenFile(opt.output, os.O_CREATE|os.O_WRONLY, 0600)
+	fOut, err := os.OpenFile(opt.itsOutput, os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		panic(fmt.Errorf("%v when opening %v for writing", err.Error(), opt.output))
+		panic(fmt.Errorf("%v when opening %v for writing", err.Error(), opt.itsOutput))
 	}
 	err = fOut.Truncate(0)
 	if err != nil {

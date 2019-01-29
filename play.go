@@ -53,8 +53,8 @@ func log(format string, args ...interface{}) {
 }
 
 func doOpPlay(opt options) {
-	if !isatty.IsTerminal(0) || !isatty.IsTerminal(1) {
-		fmt.Fprintf(os.Stderr, "Stdin and/or stdout are not terminals!")
+	if !opt.evenIfNotTty && (!isatty.IsTerminal(0) || !isatty.IsTerminal(1)) {
+		fmt.Fprintf(os.Stderr, "Stdin and/or stdout are not terminals!\n")
 		os.Exit(1)
 	}
 	d := initPlayer(opt)
@@ -98,7 +98,7 @@ func doOpPlay(opt options) {
 }
 
 func initPlayer(opt options) *decoderState {
-	fIts, err := os.OpenFile(opt.itsFile, os.O_RDONLY, 0)
+	fIts, err := os.OpenFile(opt.itsInput, os.O_RDONLY, 0)
 	if err != nil {
 		panic(err)
 	}

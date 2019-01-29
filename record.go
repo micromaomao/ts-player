@@ -6,6 +6,7 @@ import (
 	"github.com/micromaomao/go-libvterm"
 	"github.com/pkg/term/termios"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"sync"
@@ -32,26 +33,38 @@ type recorderState struct {
 }
 
 func doOpRecord(opt options) {
-	if !isatty.IsTerminal(0) || !isatty.IsTerminal(1) {
+	if !opt.evenIfNotTty && (!isatty.IsTerminal(0) || !isatty.IsTerminal(1)) {
 		panic(fmt.Errorf("Stdin and/or stdout are not terminals!"))
 	}
 	exPath, err := os.Executable()
 	if err != nil {
 		panic(err)
 	}
-	shell, ok := os.LookupEnv("SHELL")
-	if !ok {
-		panic(fmt.Errorf("Environmental variable $SHELL must be set."))
+	var shell string
+	if opt.shell != "" {
+		shell = opt.shell
+	} else {
+		var ok bool
+		shell, ok = os.LookupEnv("SHELL")
+		if !ok {
+			panic(fmt.Errorf("Environmental variable $SHELL must be set if no -s <shell> passed."))
+		}
 	}
-	_, err = os.Stat(opt.output)
+	if shell[0] != '/' {
+		shell, err = exec.LookPath(shell)
+		if err != nil {
+			panic(fmt.Errorf("Unable to lookup full-path from $PATH: %v", err.Error()))
+		}
+	}
+	_, err = os.Stat(opt.itsOutput)
 	if err == nil {
-		panic(fmt.Errorf("%v already exists", opt.output))
+		panic(fmt.Errorf("%v already exists", opt.itsOutput))
 	} else if !os.IsNotExist(err) {
-		panic(fmt.Errorf("%v stating %v", err.Error(), opt.output))
+		panic(fmt.Errorf("%v stating %v", err.Error(), opt.itsOutput))
 	}
-	fOut, err := os.OpenFile(opt.output, os.O_CREATE|os.O_WRONLY, 0600)
+	fOut, err := os.OpenFile(opt.itsOutput, os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		panic(fmt.Errorf("%v opening %v for writing", err.Error(), opt.output))
+		panic(fmt.Errorf("%v opening %v for writing", err.Error(), opt.itsOutput))
 	}
 	err = fOut.Truncate(0)
 	if err != nil {
@@ -61,11 +74,11 @@ func doOpRecord(opt options) {
 	r := &recorderState{}
 	e := &encoderState{}
 	r.encoder = e
-	vt := vterm.New(opt.stage.rows, opt.stage.cols)
+	vt := vterm.New(opt.bufferSize.rows, opt.bufferSize.cols)
 	defer vt.Close()
 	e.t = vt
-	e.size.rows = opt.stage.rows
-	e.size.cols = opt.stage.cols
+	e.size.rows = opt.bufferSize.rows
+	e.size.cols = opt.bufferSize.cols
 	e.resetVT(opt)
 	e.dict = nil
 	e.cdict = nil
@@ -76,7 +89,9 @@ func doOpRecord(opt options) {
 	}
 	defer master.Close()
 	defer slave.Close()
-	fmt.Fprintf(os.Stdout, "Recording started. Exit the shell to end.\n")
+	if !opt.quiet {
+		fmt.Fprintf(os.Stdout, "Recording started. Exit the shell to end.\n")
+	}
 	r.master = master
 	r.slave = slave
 	initTermSize := termGetSize()
@@ -111,7 +126,7 @@ func doOpRecord(opt options) {
 	go r.signalHandlerThread()
 	go r.stdinReader()
 	go r.masterReader()
-	go r.frameWriterThread()
+	go r.frameWriterThread(opt.fps)
 	_, err = r.process.Wait()
 	r.doFinalWorkAndExit()
 }
@@ -186,15 +201,21 @@ func (r *recorderState) masterReader() {
 	}
 }
 
-func (r *recorderState) frameWriterThread() {
+func (r *recorderState) frameWriterThread(fps int) {
+	minWait := time.Duration((float64(1) / float64(fps)) * float64(time.Second))
 	for {
 		r.frameBufferLock.Lock()
 		if len(r.outputBuffer) == 0 {
 			r.frameBufferLock.Unlock()
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(minWait)
 			continue
 		}
 		now := time.Now()
+		if now.Sub(r.lastTime) < minWait {
+			r.frameBufferLock.Unlock()
+			time.Sleep(minWait - now.Sub(r.lastTime))
+			continue
+		}
 
 		if r.lastCt != nil {
 			finfo := frame{}
