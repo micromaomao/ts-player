@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"syscall"
@@ -132,6 +133,7 @@ func doOpRecord(opt options) {
 }
 
 func (r *recorderState) signalHandlerThread() {
+	defer r.exitWhenPanic()
 	for {
 		signal := <-r.signalChannel
 		switch signal {
@@ -164,6 +166,7 @@ func (r *recorderState) doFinalWorkAndExit() {
 }
 
 func (r *recorderState) stdinReader() {
+	defer r.exitWhenPanic()
 	for {
 		buf := make([]byte, 1000000)
 		n, _ := os.Stdin.Read(buf)
@@ -184,6 +187,7 @@ func (r *recorderState) stdinReader() {
 }
 
 func (r *recorderState) masterReader() {
+	defer r.exitWhenPanic()
 	buf := make([]byte, 1000000)
 	for {
 		n, _ := r.master.Read(buf)
@@ -202,6 +206,7 @@ func (r *recorderState) masterReader() {
 }
 
 func (r *recorderState) frameWriterThread(fps int) {
+	defer r.exitWhenPanic()
 	minWait := time.Duration((float64(1) / float64(fps)) * float64(time.Second))
 	for {
 		r.frameBufferLock.Lock()
@@ -240,5 +245,19 @@ func (r *recorderState) frameWriterThread(fps int) {
 		termSize := termGetSize()
 		r.lastCt = r.encoder.inputToFrameContentSize(nData, termSize)
 		r.finalWorkLock.Unlock()
+	}
+}
+
+func (r *recorderState) exitWhenPanic() {
+	p := recover()
+	if p != nil {
+		r.process.Signal(syscall.SIGTERM)
+		termRestore(*r.termInitAttr)
+		fmt.Fprintf(os.Stdout, "************* ts-player *************\n")
+		fmt.Fprintf(os.Stdout, "An error occoured in ts-player and the recording must end here.\n")
+		fmt.Fprintf(os.Stdout, "Error: %v\n", p)
+		os.Stdout.Write(debug.Stack())
+		os.Stdout.WriteString("\nThe recording must be recovered with ts-player optimize before it can be played.\n")
+		os.Exit(1)
 	}
 }
