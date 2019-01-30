@@ -21,8 +21,8 @@ func doOpGetColorProfile(opt options) {
 const patternWidth = 34
 const patternHeight = 10
 
-var finderBg = color.RGBA{0, 0, 0, 1}
-var finderFg = color.RGBA{0xff, 0x00, 0xff, 1}
+var finderBg = color.RGBA{0, 0, 0, 0xff}
+var finderFg = color.RGBA{0xff, 0x00, 0xff, 0xff}
 
 func doPrintPattern() {
 	termSize := termGetSize()

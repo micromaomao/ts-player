@@ -45,6 +45,15 @@ func doOpEncode(opt options) {
 	e.size.rows = opt.bufferSize.rows
 	e.size.cols = opt.bufferSize.cols
 
+	if opt.colorProfileInput != "" {
+		cf, err := processColorProfile(opt.colorProfileInput)
+		if err != nil {
+			panic(err)
+		} else {
+			e.translateColor = &cf
+		}
+	}
+
 	os.Stderr.WriteString("Determining total time and frame number...\n")
 	fTiming.Seek(0, os.SEEK_SET)
 	bTiming.Reset(fTiming)
@@ -62,7 +71,7 @@ func doOpEncode(opt options) {
 	fTiming.Seek(0, os.SEEK_SET)
 	bTiming.Reset(fTiming)
 	fScript.Seek(0, os.SEEK_SET)
-	e.resetVT(opt)
+	e.resetVT()
 	dictSamples := make([][]byte, 0, 1000)
 	bytesStored := 0
 	tsEncodeFramesPass(200/totalDuration, bTiming, fScript, func(f *frame, bytesRead uint64) {
@@ -90,7 +99,7 @@ func doOpEncode(opt options) {
 	fTiming.Seek(0, os.SEEK_SET)
 	bTiming.Reset(fTiming)
 	fScript.Seek(0, os.SEEK_SET)
-	e.resetVT(opt)
+	e.resetVT()
 	e.initOutputFile(fOut)
 	tsEncodeFramesPass(float64(opt.fps), bTiming, fScript, func(f *frame, bytesRead uint64) {
 		fContent := e.inputToFrameContent(f.data)
@@ -106,28 +115,24 @@ func doOpEncode(opt options) {
 	fOut.Close()
 }
 
-func (e *encoderState) resetVT(opt options) {
+func (e *encoderState) resetVT() {
 	e.t.SetUTF8(true)
 	vtScr := e.t.ObtainScreen()
 	vtScr.Reset(true)
 	vtScr.EnableAltScreen(true)
-	// tState := e.t.ObtainState()
-	// TODO FIXME
-	// tState.SetDefaultColors(vterm.NewVTermColorRGB(uint32ToColor(opt.stage.indexedColors[0])), vterm.NewVTermColorRGB(uint32ToColor(opt.stage.indexedColors[1])))
-	for i := 2; i < 18; i++ {
-		// col := uint32ToColor(opt.stage.indexedColors[i])
-		// tState.SetPaletteColor(i-2, vterm.NewVTermColorRGB(col))
+	tState := e.t.ObtainState()
+	cp := e.translateColor
+	if cp == nil {
+		tState.SetDefaultColors(vterm.NewVTermColorRGB(color.RGBA{0, 0, 0, 255}), vterm.NewVTermColorRGB(color.RGBA{255, 255, 255, 255}))
+	} else {
+		tState.SetDefaultColors(vterm.NewVTermColorRGB(cp.fg), vterm.NewVTermColorRGB(cp.bg))
+	}
+	if cp != nil {
+		for i := 0; i < 16; i++ {
+			tState.SetPaletteColor(i, vterm.NewVTermColorRGB(cp.palettle[i]))
+		}
 	}
 	e.t.Write([]byte("\033[0m\033[2J"))
-}
-
-func uint32ToColor(i uint32) color.RGBA {
-	b := uint8(i % 256)
-	i >>= 8
-	g := uint8(i % 256)
-	i >>= 8
-	r := uint8(i % 256)
-	return color.RGBA{R: r, G: g, B: b, A: 255}
 }
 
 type frameCallback func(f *frame, bytesRead uint64)
@@ -196,6 +201,7 @@ type encoderState struct {
 	size                 sizeStruct
 	dict                 []byte
 	cdict                *gozstd.CDict
+	translateColor       *colorProfile
 
 	fileHeader       *ITSHeader
 	headerOffset     uint64
@@ -246,7 +252,7 @@ func (c *frameCell) styleFromAttrs(attrs *vterm.Attrs, bg, fg vterm.VTermColor) 
 	}
 }
 
-func (c *frameCell) attrCode() uint64 {
+func (c *frameCell) attrCode(translateColor *colorProfile) uint64 {
 	//    7  6  5  4  3  2  1  0
 	// 0x 00 RR GG BB rr gg bb bu
 	//      |---fg---|---bg---|fontattr
@@ -258,8 +264,16 @@ func (c *frameCell) attrCode() uint64 {
 		num += uint64(fB) << (8 * 4)
 	} else {
 		index, _ := c.style.fg.GetIndex()
-		num += uint64(index) << (8 * 4)
-		num |= cellAttrcodeFgIndexedColor
+		if translateColor != nil {
+			col := translateColor.palettle[index]
+			fR, fG, fB := col.R, col.G, col.B
+			num += uint64(fR) << (8 * 6)
+			num += uint64(fG) << (8 * 5)
+			num += uint64(fB) << (8 * 4)
+		} else {
+			num += uint64(index) << (8 * 4)
+			num |= cellAttrcodeFgIndexedColor
+		}
 	}
 	if c.style.bg.IsRGB() {
 		bR, bG, bB, _ := c.style.bg.GetRGB()
@@ -268,8 +282,16 @@ func (c *frameCell) attrCode() uint64 {
 		num += uint64(bB) << (8 * 1)
 	} else {
 		index, _ := c.style.bg.GetIndex()
-		num += uint64(index) << (8 * 1)
-		num |= cellAttrcodeBgIndexedColor
+		if translateColor != nil {
+			col := translateColor.palettle[index]
+			bR, bG, bB := col.R, col.G, col.B
+			num += uint64(bR) << (8 * 3)
+			num += uint64(bG) << (8 * 2)
+			num += uint64(bB) << (8 * 1)
+		} else {
+			num += uint64(index) << (8 * 1)
+			num |= cellAttrcodeBgIndexedColor
+		}
 	}
 	if c.style.bold {
 		num |= cellAttrcodeBold
@@ -486,7 +508,7 @@ func (e *encoderState) getFrameStruct(fi *frame, ct frameContent) *ITSFrame {
 		for col := 0; col < e.size.cols; col++ {
 			memcell := ct.getCellAt(row, col, &e.size)
 			contentArr = append(contentArr, string(memcell.chars))
-			attrsArr = append(attrsArr, memcell.attrCode())
+			attrsArr = append(attrsArr, memcell.attrCode(e.translateColor))
 		}
 	}
 

@@ -355,7 +355,7 @@ func (c *frameCell) equalsTo(c2 *frameCell) bool {
 	if string(c.chars) != string(c2.chars) {
 		return false
 	}
-	if c.attrCode() != c2.attrCode() {
+	if c.attrCode(nil) != c2.attrCode(nil) {
 		return false
 	}
 	return true
@@ -382,7 +382,7 @@ func (d *decoderState) renderFrameContent(perv, next frameContent, out io.Writer
 				cursorCol = col
 			}
 			cell := next.getCellAt(row, col, &frameSize)
-			if row != 0 && col != 0 && cell.attrCode() == lastAttr {
+			if row != 0 && col != 0 && cell.attrCode(nil) == lastAttr {
 				// no need to output attr
 				out.Write([]byte(string(cell.chars)))
 			} else {

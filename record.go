@@ -25,6 +25,7 @@ type recorderState struct {
 	finalWorkLock *sync.Mutex
 	termInitAttr  *syscall.Termios
 	startTime     time.Time
+	quiet         bool
 
 	lastFrameId     uint64
 	lastTime        time.Time
@@ -72,6 +73,15 @@ func doOpRecord(opt options) {
 		panic(err)
 	}
 	fOut.Seek(0, os.SEEK_SET)
+	var cf *colorProfile = nil
+	if opt.colorProfileInput != "" {
+		_cf, err := processColorProfile(opt.colorProfileInput)
+		if err == nil {
+			cf = &_cf
+		} else {
+			panic(err)
+		}
+	}
 	r := &recorderState{}
 	e := &encoderState{}
 	r.encoder = e
@@ -80,7 +90,8 @@ func doOpRecord(opt options) {
 	e.t = vt
 	e.size.rows = opt.bufferSize.rows
 	e.size.cols = opt.bufferSize.cols
-	e.resetVT(opt)
+	e.translateColor = cf
+	e.resetVT()
 	e.dict = nil
 	e.cdict = nil
 	e.initOutputFile(fOut)
@@ -93,6 +104,7 @@ func doOpRecord(opt options) {
 	if !opt.quiet {
 		fmt.Fprintf(os.Stdout, "Recording started. Exit the shell to end.\n")
 	}
+	r.quiet = opt.quiet
 	r.master = master
 	r.slave = slave
 	initTermSize := termGetSize()
@@ -160,6 +172,9 @@ func (r *recorderState) doFinalWorkAndExit() {
 	}
 	r.exited = true
 	termRestore(*r.termInitAttr)
+	if !r.quiet {
+		os.Stdout.WriteString("Recording ends here.\n")
+	}
 	r.frameBufferLock.Lock()
 	r.encoder.finalize()
 	os.Exit(0)

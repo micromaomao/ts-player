@@ -33,7 +33,7 @@ func Test_frameCell_attrCode(t *testing.T) {
 }
 
 func doAttrCodeTest(fs frameCell, t *testing.T) {
-	code := fs.attrCode()
+	code := fs.attrCode(nil)
 	t.Run(strconv.FormatUint(code, 16), func(t *testing.T) {
 		nfs := frameCell{}
 		nfs.fromAttrCode(code)
@@ -68,4 +68,13 @@ func Test_uint32ToColor(t *testing.T) {
 			}
 		})
 	}
+}
+
+func uint32ToColor(i uint32) color.RGBA {
+	b := uint8(i % 256)
+	i >>= 8
+	g := uint8(i % 256)
+	i >>= 8
+	r := uint8(i % 256)
+	return color.RGBA{R: r, G: g, B: b, A: 255}
 }
