@@ -403,8 +403,8 @@ func (e *encoderState) inputToFrameContentSize(input []byte, ctSz sizeStruct) fr
 
 	fc := e.newFrameContent()
 	vtScr := e.t.ObtainScreen()
-	for row := 0; row < ctSz.rows; row++ {
-		for col := 0; col < ctSz.cols; col++ {
+	for row := 0; row < ctSz.rows && row < e.size.rows; row++ {
+		for col := 0; col < ctSz.cols && col < e.size.cols; col++ {
 			cell := frameCell{}
 			termCell, err := vtScr.GetCellAt(row, col)
 			if err != nil {
