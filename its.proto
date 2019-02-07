@@ -10,7 +10,7 @@ File structure for .its (indexed typescript):
 
   frame 0 length: 4 byte uint32, big endian <- header.firstFrameOffset, index[0].byteOffset
   frame 0: protobuf message frame, possibly compressed with dict
-  frame 1 length ...... <- index[1...?].byteOffset
+  frame 1 length ...... <- index[1].byteOffset
   ......
 
   index length: 8 byte uint64, big endian <- header.indexOffset
