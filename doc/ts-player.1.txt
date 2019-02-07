@@ -32,6 +32,8 @@ OPERATIONS
 
 *check-color-profile*:: Print out values from a color profile image.
 
+*to-video*:: Produce a video from a ts recording.
+
 USAGE FOR `RECORD`
 ------------------
 ts-player record [-s 'shell'] [-q] [--even-if-not-tty] [-f 'fps'] [-c 'color profile'] [--buffer-size=__rows__x__cols__] '<output file>'
@@ -108,6 +110,12 @@ USAGE FOR `CHECK-COLOR-PROFILE`
 ts-player check-color-profile '<input image>'
 
 Print out values from a color profile image.
+
+USAGE FOR `TO-VIDEO`
+--------------------
+ts-player to-video [-f 'fps'] -c 'color profile' [--buffer-size=__rows__x__cols__] [--font='family'] [--dpi='dpi'] [-ss <'frames to skip'>] [-t <'number of frames to include'>] <input recording> <output video file|--ffplay>
+
+Requires *ffmpeg(1)* to be installed.
 
 EXIT STATUS
 -----------

@@ -27,6 +27,13 @@ type options struct {
 	timing string
 
 	itsInput string
+
+	fontFamily  string
+	ffplay      bool
+	videoOutput string
+	dpi         float64
+	ss          uint64
+	t           uint64
 }
 
 const (
@@ -36,6 +43,7 @@ const (
 	opOptimize          = "optimize"
 	opGetColorProfile   = "get-color-profile"
 	opCheckColorProfile = "check-color-profile"
+	opToVideo           = "to-video"
 )
 
 func log(format string, args ...interface{}) {
@@ -76,6 +84,8 @@ func main() {
 		doOpGetColorProfile(opt)
 	case opCheckColorProfile:
 		doOpCheckColorProfile(opt)
+	case opToVideo:
+		doOpToVideo(opt)
 	default:
 		// default case handled by parseArgs
 		panic("!")
@@ -123,6 +133,11 @@ func parseArgs(args []string) (opt options, err error) {
 				return
 			}
 			opt.operation = currentArg
+			if opt.operation == opToVideo {
+				opt.fps = 25
+				opt.bufferSize = sizeStruct{160, 60}
+				opt.dpi = 150
+			}
 			continue
 		}
 
@@ -131,7 +146,7 @@ func parseArgs(args []string) (opt options, err error) {
 			continue
 		}
 
-		if currentArg == "-f" && (opt.operation == opRecord || opt.operation == opEncode) {
+		if currentArg == "-f" && (opt.operation == opRecord || opt.operation == opEncode || opt.operation == opToVideo) {
 			if !hasNextArg {
 				err = fmt.Errorf("-f <fps>")
 				return
@@ -144,7 +159,7 @@ func parseArgs(args []string) (opt options, err error) {
 			continue
 		}
 
-		if currentArg == "-c" && (opt.operation == opRecord || opt.operation == opEncode || opt.operation == opPlay) {
+		if currentArg == "-c" && (opt.operation == opRecord || opt.operation == opEncode || opt.operation == opPlay || opt.operation == opToVideo) {
 			if !hasNextArg {
 				err = fmt.Errorf("-c <color profile file>")
 				return
@@ -155,7 +170,7 @@ func parseArgs(args []string) (opt options, err error) {
 		}
 
 		const ddBufSizeEqual = "--buffer-size="
-		if strings.HasPrefix(currentArg, ddBufSizeEqual) && (opt.operation == opRecord || opt.operation == opEncode || opt.operation == opOptimize) {
+		if strings.HasPrefix(currentArg, ddBufSizeEqual) && (opt.operation == opRecord || opt.operation == opEncode || opt.operation == opOptimize || opt.operation == opToVideo) {
 			equals := currentArg[len(ddBufSizeEqual):]
 			sm := regXxY.FindStringSubmatch(equals)
 			if sm == nil {
@@ -261,6 +276,85 @@ func parseArgs(args []string) (opt options, err error) {
 			}
 		}
 
+		if opt.operation == opToVideo {
+			const ddFontEqual = "--font="
+			if strings.HasPrefix(currentArg, ddFontEqual) && (opt.operation == opToVideo) {
+				equals := currentArg[len(ddFontEqual):]
+				if strings.ContainsAny(equals, "-,:=_") {
+					err = fmt.Errorf("Font-config pattern detected. Pass family name directly instead")
+					return
+				}
+				opt.fontFamily = equals
+				continue
+			}
+
+			const ddDpiEqual = "--dpi="
+			if strings.HasPrefix(currentArg, ddDpiEqual) && (opt.operation == opToVideo) {
+				equals := currentArg[len(ddDpiEqual):]
+				var f float64
+				f, err = strconv.ParseFloat(equals, 64)
+				if err != nil {
+					err = fmt.Errorf("--dpi=number")
+					return
+				}
+				if f <= 0 {
+					err = fmt.Errorf("dpi must be positive")
+					return
+				}
+				opt.dpi = f
+				continue
+			}
+
+			const ddFfplay = "--ffplay"
+			if currentArg == ddFfplay {
+				opt.ffplay = true
+				continue
+			}
+
+			if currentArg == "-ss" {
+				if !hasNextArg {
+					err = fmt.Errorf("-ss <skip frames>")
+					return
+				}
+				var ss uint64
+				ss, err = strconv.ParseUint(nextArg, 10, 64)
+				if err != nil {
+					return
+				}
+				opt.ss = ss
+				i++
+				continue
+			}
+
+			if currentArg == "-t" {
+				if !hasNextArg {
+					err = fmt.Errorf("-t <frames>")
+					return
+				}
+				var t uint64
+				t, err = strconv.ParseUint(nextArg, 10, 64)
+				if err != nil {
+					return
+				}
+				opt.t = t
+				i++
+				continue
+			}
+
+			if currentArg[0] != '-' {
+				if nbNonOptionArgs == 0 {
+					nbNonOptionArgs++
+					opt.itsInput = currentArg
+					continue
+				}
+				if nbNonOptionArgs == 1 {
+					nbNonOptionArgs++
+					opt.videoOutput = currentArg
+					continue
+				}
+			}
+		}
+
 		err = fmt.Errorf("Unused argument %v", strconv.Quote(currentArg))
 		return
 	}
@@ -293,6 +387,27 @@ func parseArgs(args []string) (opt options, err error) {
 	case opCheckColorProfile:
 		if nbNonOptionArgs != 1 {
 			err = fmt.Errorf("Expected a color profile image as argument")
+			return
+		}
+	case opToVideo:
+		if nbNonOptionArgs == 1 && !opt.ffplay {
+			err = fmt.Errorf("Expected 1 more additional arguments: <output>")
+			return
+		}
+		if nbNonOptionArgs == 2 && opt.ffplay {
+			err = fmt.Errorf("No output can be produced if --ffplay used. Remove the output argument")
+			return
+		}
+		if nbNonOptionArgs != 1 && nbNonOptionArgs != 2 {
+			if opt.ffplay {
+				err = fmt.Errorf("Expected 1 additional arguments: <input>")
+			} else {
+				err = fmt.Errorf("Expected 2 additional arguments: <input> and <output>")
+			}
+			return
+		}
+		if opt.colorProfileInput == "" {
+			err = fmt.Errorf("Requires color profile. Pass with -c.")
 			return
 		}
 	default:

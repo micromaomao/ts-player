@@ -231,17 +231,25 @@ func (d *decoderState) searchForFrame(time float64) (frameId uint64, indexEntry 
 	j = len(frames)
 	for {
 		if i >= j || i >= len(frames) {
-			if j-1 < 0 {
-				j = 1
+			if j < 0 {
+				j = 0
 			}
-			if j > len(frames) {
-				j = len(frames)
+			if j >= len(frames) {
+				j = len(frames) - 1
 			}
-			return uint64(j - 1), frames[j-1]
+			if j < i {
+				return uint64(j), frames[j]
+			} else {
+				return uint64(i), frames[i]
+			}
 		}
 		mid := (i + j) / 2
 		foundTime := frames[mid].GetTimeOffset()
-		if math.Abs(foundTime-time) < 0.0001 {
+		foundNextTime := foundTime
+		if mid < len(frames)-1 {
+			foundNextTime = frames[mid+1].GetTimeOffset()
+		}
+		if foundTime-0.0001 <= time && time < foundNextTime {
 			return uint64(mid), frames[mid]
 		}
 		if foundTime < time {
@@ -508,9 +516,9 @@ func (d *decoderState) uiThread() {
 			progress := currentTimeOffset / totalTime
 			xThreshold := int(progress * float64(sz.cols))
 			if d.paused {
-				leftText = fmt.Sprintf(" paused at frame %v (%vs/%vs)", currentRenderingFrameId, uint64(currentTimeOffset), uint64(totalTime))
+				leftText = fmt.Sprintf(" paused at frame %v (%vs/%vs)", currentRenderingFrameId, math.Floor(currentTimeOffset*10)/10, uint64(totalTime))
 			} else {
-				leftText = fmt.Sprintf(" playing at frame %v (%vs/%vs)", currentRenderingFrameId, uint64(currentTimeOffset), uint64(totalTime))
+				leftText = fmt.Sprintf(" playing at frame %v (%vs/%vs)", currentRenderingFrameId, math.Floor(currentTimeOffset*10)/10, uint64(totalTime))
 			}
 			d.updateSignal.L.Unlock()
 			controlBarFc := make(frameContent, w*h)
