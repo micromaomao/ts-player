@@ -1,5 +1,17 @@
 # `ts-player`: Flexible terminal recorder
 
+## Building & Installing
+
+### Via AUR:
+
+[ts-player](https://aur.archlinux.org/packages/ts-player/)
+
+### Build from source:
+
+    go get -v -d
+    make
+    ./ts-player
+
 ## Features
 
 - Jump around recordings instantly, even for hours/days long recordings.
