@@ -80,6 +80,16 @@ func doOpToVideo(opt options) {
 	if err != nil {
 		panic(err)
 	}
+	defer func() {
+		p := recover()
+		if p != nil {
+			if proc.Process != nil {
+				proc.Process.Signal(syscall.SIGTERM)
+				proc.Wait()
+			}
+			panic(p)
+		}
+	}()
 	go func() {
 		e := proc.Wait()
 		if e != nil {
@@ -94,6 +104,7 @@ func doOpToVideo(opt options) {
 			_ = <-signalChannel
 			if proc.Process != nil {
 				proc.Process.Signal(syscall.SIGTERM)
+				proc.Wait()
 			}
 			os.Exit(1)
 		}
