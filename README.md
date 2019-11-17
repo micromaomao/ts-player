@@ -1,5 +1,7 @@
 # `ts-player`: Flexible terminal recorder
 
+![demo screencast](doc/demo.gif)
+
 ## Building & Installing
 
 ### Via AUR:
@@ -22,10 +24,6 @@
 - Corruption / crash recovery
 - Bake color profile into recordings / play back recordings with any color profile of your choice. (I'm speaking of things like "xterm" or "solarized")
 - Render recordings to video (arbitrary resolution / font) with `ffmpeg`
-
-## Video demo
-
-https://www.youtube.com/watch?v=-JARNcnfoa4
 
 ## Motivation
 
