@@ -159,11 +159,17 @@ func doOpToVideo(opt options) {
 				var cellRect = image.Rect(col*cellWidth, row*cellHeight, (col+1)*cellWidth, (row+1)*cellHeight)
 				var vtBg = frameCell.style.bg
 				if !vtBg.IsRGB() {
+					if d.translateColor == nil {
+						panic(fmt.Sprintf("No color profile provided, but the recording does not encode color. Can't convert to video."))
+					}
 					panic("!")
 				}
 				bgR, bgG, bgB, _ := vtBg.GetRGB()
 				var vtFg = frameCell.style.fg
 				if !vtFg.IsRGB() {
+					if d.translateColor == nil {
+						panic(fmt.Sprintf("No color profile provided, but the recording does not encode color. Can't convert to video."))
+					}
 					panic("!")
 				}
 				fgR, fgG, fgB, _ := vtFg.GetRGB()

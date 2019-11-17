@@ -129,7 +129,7 @@ func (e *encoderState) resetVT() {
 	}
 	if cp != nil {
 		for i := 0; i < 16; i++ {
-			tState.SetPaletteColor(i, vterm.NewVTermColorRGB(cp.palettle[i]))
+			tState.SetPaletteColor(i, vterm.NewVTermColorRGB(cp.palette[i]))
 		}
 	}
 	e.t.Write([]byte("\033[0m\033[2J"))
@@ -265,7 +265,7 @@ func (c *frameCell) attrCode(translateColor *colorProfile) uint64 {
 	} else {
 		index, _ := c.style.fg.GetIndex()
 		if translateColor != nil {
-			col := translateColor.palettle[index]
+			col := translateColor.palette[index]
 			fR, fG, fB := col.R, col.G, col.B
 			num += uint64(fR) << (8 * 6)
 			num += uint64(fG) << (8 * 5)
@@ -283,7 +283,7 @@ func (c *frameCell) attrCode(translateColor *colorProfile) uint64 {
 	} else {
 		index, _ := c.style.bg.GetIndex()
 		if translateColor != nil {
-			col := translateColor.palettle[index]
+			col := translateColor.palette[index]
 			bR, bG, bB := col.R, col.G, col.B
 			num += uint64(bR) << (8 * 3)
 			num += uint64(bG) << (8 * 2)
@@ -303,7 +303,7 @@ func (c *frameCell) attrCode(translateColor *colorProfile) uint64 {
 	return num
 }
 
-func (c *frameCell) fromAttrCode(code uint64) {
+func (c *frameCell) fromAttrCode(code uint64, translateColor *colorProfile) {
 	if code&cellAttrcodeBold > 0 {
 		c.style.bold = true
 	}
@@ -334,12 +334,20 @@ func (c *frameCell) fromAttrCode(code uint64) {
 	if !fgIndexed {
 		c.style.fg = vterm.NewVTermColorRGB(color.RGBA{R: fR, G: fG, B: fB, A: 255})
 	} else {
-		c.style.fg = vterm.NewVTermColorIndexed(fIndex)
+		if translateColor != nil {
+			c.style.fg = vterm.NewVTermColorRGB(translateColor.palette[fIndex])
+		} else {
+			c.style.fg = vterm.NewVTermColorIndexed(fIndex)
+		}
 	}
 	if !bgIndexed {
 		c.style.bg = vterm.NewVTermColorRGB(color.RGBA{R: bR, G: bG, B: bB, A: 255})
 	} else {
-		c.style.bg = vterm.NewVTermColorIndexed(bIndex)
+		if translateColor != nil {
+			c.style.bg = vterm.NewVTermColorRGB(translateColor.palette[bIndex])
+		} else {
+			c.style.bg = vterm.NewVTermColorIndexed(bIndex)
+		}
 	}
 }
 
@@ -359,7 +367,7 @@ func (c *frameCell) toOutput(translateColor *colorProfile) string {
 	} else {
 		index, _ := c.style.bg.GetIndex()
 		if translateColor != nil {
-			rgb := translateColor.palettle[index]
+			rgb := translateColor.palette[index]
 			bgCode = fmt.Sprintf("\033[48;2;%d;%d;%dm", rgb.R, rgb.G, rgb.B)
 		} else {
 			bgCode = fmt.Sprintf("\033[48;5;%dm", index)
@@ -372,7 +380,7 @@ func (c *frameCell) toOutput(translateColor *colorProfile) string {
 	} else {
 		index, _ := c.style.fg.GetIndex()
 		if translateColor != nil {
-			rgb := translateColor.palettle[index]
+			rgb := translateColor.palette[index]
 			fgCode = fmt.Sprintf("\033[38;2;%d;%d;%dm", rgb.R, rgb.G, rgb.B)
 		} else {
 			fgCode = fmt.Sprintf("\033[38;5;%dm", index)

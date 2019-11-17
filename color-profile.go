@@ -75,7 +75,7 @@ func doPrintPattern() {
 
 type colorProfile struct {
 	fg, bg   color.RGBA
-	palettle [256]color.RGBA
+	palette [256]color.RGBA
 }
 
 func abs(i int) int {
@@ -298,7 +298,7 @@ func processColorProfile(file string) (cf colorProfile, err error) {
 				x := contentX + col*segmentWidth
 				y := contentY + row*segmentHeight
 				col := img.At(x+segmentWidth/2+bd.Min.X, y+segmentHeight/2+bd.Min.Y)
-				cf.palettle[i] = toRgba(col)
+				cf.palette[i] = toRgba(col)
 				i++
 			}
 		}
@@ -354,7 +354,7 @@ func doOpCheckColorProfile(opt options) {
 	}
 	fmt.Fprintf(os.Stdout, "fg: %v\nbg: %v\n", rgbaToHex(profile.fg), rgbaToHex(profile.bg))
 	for i := 0; i < 16; i++ {
-		fmt.Fprintf(os.Stdout, "%d: %v\n", i, rgbaToHex(profile.palettle[i]))
+		fmt.Fprintf(os.Stdout, "%d: %v\n", i, rgbaToHex(profile.palette[i]))
 	}
 	os.Stdout.WriteString("...\n")
 }

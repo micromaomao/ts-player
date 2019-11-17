@@ -92,7 +92,7 @@ func main() {
 	}
 }
 
-type Palettle [18]uint32
+type Palette [18]uint32
 
 var (
 	regXxY = regexp.MustCompile(`^(\d+)x(\d+)$`)

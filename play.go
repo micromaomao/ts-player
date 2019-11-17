@@ -351,7 +351,7 @@ func (d *decoderState) decodeFrameStruct(frameStruct *ITSFrame) (frameInfo frame
 		for col := 0; col < d.frameSize.cols; col++ {
 			cell := frameCell{}
 			cell.chars = []rune(body.GetContents()[i])
-			cell.fromAttrCode(body.GetAttrs()[i])
+			cell.fromAttrCode(body.GetAttrs()[i], d.translateColor)
 			content.setCellAt(row, col, cell, &d.frameSize)
 			i++
 		}
