@@ -69,6 +69,15 @@ func doOpToVideo(opt options) {
 	if opt.ffplay {
 		bin = ffplay_bin
 	}
+	if opt.colorProfileInput != "" {
+		cf, err := processColorProfile(opt.colorProfileInput)
+		if err != nil {
+			panic(err)
+		}
+		d.translateColor = &cf
+	} else {
+		d.translateColor = nil
+	}
 	proc := exec.Command(bin, args...)
 	var videoDataBuf = make([]byte, 0, 1000000)
 	var videoDataBufLock = &sync.Mutex{}
