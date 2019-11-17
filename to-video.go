@@ -50,8 +50,8 @@ func doOpToVideo(opt options) {
 		baseOff.X = -bound.Min.X.Round()
 		baseOff.Y = -bound.Max.Y.Round()
 	}
-	var videoWidth = videoRows * cellWidth
-	var videoHeight = videoCols * cellHeight
+	var videoWidth = videoCols * cellWidth
+	var videoHeight = videoRows * cellHeight
 	if videoWidth%16 != 0 {
 		videoWidth = (videoWidth / 16) * 16
 	}
